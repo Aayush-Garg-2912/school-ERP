@@ -81,34 +81,45 @@ app.get("/health", (req, res) =>
     timestamp: new Date().toISOString(),
   }),
 );
-app.use("/api/auth", routes.auth);
-app.use("/api/chairman", routes.chairman);
-app.use("/api/school", routes.school);
-app.use("/api/academic-years", routes.academicYears);
-app.use("/api/classes", routes.classes);
-app.use("/api/sections", routes.sections);
-app.use("/api/subjects", routes.subjects);
-app.use("/api/class-subjects", routes.classSubjects);
-app.use("/api/teachers", routes.teachers);
-app.use("/api/teacher-assignments", routes.teacherAssignments);
-app.use("/api/students", routes.students);
-app.use("/api/parents", routes.parents);
-app.use("/api/staff", routes.staff);
-app.use("/api/attendance", routes.attendance);
-app.use("/api/fee-structures", routes.feeStructures);
-app.use("/api/student-fees", routes.studentFees);
-app.use("/api/fee-payments", routes.feePayments);
-app.use("/api/exams", routes.exams);
-app.use("/api/results", routes.results);
-app.use("/api/timetable", routes.timetable);
-app.use("/api/leaves", routes.leaves);
-app.use("/api/notices", routes.notices);
-app.use("/api/notifications", routes.notifications);
-app.use("/api/reports", routes.reports);
-app.use("/api/whatsapp", routes.whatsapp);
-app.use((req, res) =>
-  res.status(404).json({ success: false, message: "API route not found" }),
-);
+const registerRoutes = (prefix = "") => {
+  app.use(`${prefix}/auth`, routes.auth);
+  app.use(`${prefix}/chairman`, routes.chairman);
+  app.use(`${prefix}/school`, routes.school);
+  app.use(`${prefix}/academic-years`, routes.academicYears);
+  app.use(`${prefix}/classes`, routes.classes);
+  app.use(`${prefix}/sections`, routes.sections);
+  app.use(`${prefix}/subjects`, routes.subjects);
+  app.use(`${prefix}/class-subjects`, routes.classSubjects);
+  app.use(`${prefix}/teachers`, routes.teachers);
+  app.use(`${prefix}/teacher-assignments`, routes.teacherAssignments);
+  app.use(`${prefix}/students`, routes.students);
+  app.use(`${prefix}/parents`, routes.parents);
+  app.use(`${prefix}/staff`, routes.staff);
+  app.use(`${prefix}/attendance`, routes.attendance);
+  app.use(`${prefix}/fee-structures`, routes.feeStructures);
+  app.use(`${prefix}/student-fees`, routes.studentFees);
+  app.use(`${prefix}/fee-payments`, routes.feePayments);
+  app.use(`${prefix}/exams`, routes.exams);
+  app.use(`${prefix}/results`, routes.results);
+  app.use(`${prefix}/timetable`, routes.timetable);
+  app.use(`${prefix}/leaves`, routes.leaves);
+  app.use(`${prefix}/notices`, routes.notices);
+  app.use(`${prefix}/notifications`, routes.notifications);
+  app.use(`${prefix}/reports`, routes.reports);
+  app.use(`${prefix}/whatsapp`, routes.whatsapp);
+};
+
+// Mount both with /api and without /api to prevent 404s from environment configuration mismatch
+registerRoutes("/api");
+registerRoutes("");
+
+app.use((req, res) => {
+  console.warn(`[404 NOT FOUND] ${req.method} ${req.originalUrl}`);
+  res.status(404).json({
+    success: false,
+    message: `API route not found: ${req.method} ${req.originalUrl}`,
+  });
+});
 app.use((err, req, res, next) => {
   console.error("Unhandled Error:", err);
   if (err.code === 11000)
