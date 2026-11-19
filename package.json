@@ -1,0 +1,13 @@
+{
+  "name": "erp-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "School Enterprise Resource Planning System",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "seed:backend": "npm --prefix backend run seed",
+    "seed:full": "npm --prefix backend run seed:full",
+    "build:frontend": "npm --prefix frontend run build"
+  }
+}

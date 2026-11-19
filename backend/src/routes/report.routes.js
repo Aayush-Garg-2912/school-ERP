@@ -1,0 +1,1 @@
+const express=require('express'); const{summary}=require('../controllers/report.controller'); const{protect}=require('../middleware/auth.middleware'); const{allowPermissions}=require('../middleware/permissionMiddleware'); const router=express.Router(); router.get('/summary',protect,allowPermissions('report:view'),summary); module.exports=router;

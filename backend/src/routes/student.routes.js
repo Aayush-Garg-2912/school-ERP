@@ -1,0 +1,54 @@
+const express = require("express");
+
+const {
+  createStudent,
+  getStudents,
+  getStudentById,
+  updateStudent,
+  deleteStudent,
+} = require("../controllers/student.controller");
+
+const { protect } = require("../middleware/auth.middleware");
+
+const {
+  allowPermissions,
+} = require("../middleware/permissionMiddleware");
+
+const router = express.Router();
+
+router.post(
+  "/",
+  protect,
+  allowPermissions("student:create"),
+  createStudent
+);
+
+router.get(
+  "/",
+  protect,
+  allowPermissions("student:view"),
+  getStudents
+);
+
+router.get(
+  "/:id",
+  protect,
+  allowPermissions("student:view"),
+  getStudentById
+);
+
+router.put(
+  "/:id",
+  protect,
+  allowPermissions("student:update"),
+  updateStudent
+);
+
+router.delete(
+  "/:id",
+  protect,
+  allowPermissions("student:delete"),
+  deleteStudent
+);
+
+module.exports = router;
