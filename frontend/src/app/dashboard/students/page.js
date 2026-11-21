@@ -27,6 +27,12 @@ import {
   Empty,
   Skeleton,
   Tooltip,
+  Switch,
+  Checkbox,
+  Steps,
+  InputNumber,
+  Alert,
+  Badge,
 } from "antd";
 import {
   UserAddOutlined,
@@ -45,6 +51,13 @@ import {
   MailOutlined,
   IdcardOutlined,
   CalendarOutlined,
+  RiseOutlined,
+  DollarCircleOutlined,
+  CarOutlined,
+  GiftOutlined,
+  ArrowRightOutlined,
+  CheckOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -101,6 +114,90 @@ export default function StudentsPage() {
   const [editingStudent, setEditingStudent] = useState(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editForm] = Form.useForm();
+
+  // Student details drawer fee status
+  const [selectedStudentFee, setSelectedStudentFee] = useState(null);
+  const [loadingStudentFee, setLoadingStudentFee] = useState(false);
+
+  // Fee setup in Admission Modal
+  const [enableAdmissionFee, setEnableAdmissionFee] = useState(true);
+  const [classFeeStructures, setClassFeeStructures] = useState([]);
+  const [admAnnualCharges, setAdmAnnualCharges] = useState(5000);
+  const [admMonthlyTuition, setAdmMonthlyTuition] = useState(1500);
+  const [admTuitionMonths, setAdmTuitionMonths] = useState(12);
+  const [admTransportOpted, setAdmTransportOpted] = useState(false);
+  const [admTransportAmount, setAdmTransportAmount] = useState(0);
+  const [admTransportRoute, setAdmTransportRoute] = useState("");
+  const [admExtraAmount, setAdmExtraAmount] = useState(0);
+  const [admExtraRemarks, setAdmExtraRemarks] = useState("");
+  const [admOfferType, setAdmOfferType] = useState("none");
+  const [admOfferPct, setAdmOfferPct] = useState(0);
+  const [admOfferFlat, setAdmOfferFlat] = useState(0);
+
+  // Student Promotion Wizard
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false);
+  const [promoteSubmitting, setPromoteSubmitting] = useState(false);
+  const [promoteStep, setPromoteStep] = useState(0);
+  const [promoteForm] = Form.useForm();
+  const [promoteSourceYear, setPromoteSourceYear] = useState(null);
+  const [promoteSourceClass, setPromoteSourceClass] = useState(null);
+  const [promoteSourceStudents, setPromoteSourceStudents] = useState([]);
+  const [promoteSelectedStudentIds, setPromoteSelectedStudentIds] = useState([]);
+  const [promoteTargetYear, setPromoteTargetYear] = useState(null);
+  const [promoteTargetClass, setPromoteTargetClass] = useState(null);
+  const [promoteTargetSections, setPromoteTargetSections] = useState([]);
+  const [promoteTargetFeeStructures, setPromoteTargetFeeStructures] = useState([]);
+  const [promoteLoadingStudents, setPromoteLoadingStudents] = useState(false);
+
+  // Real-time calculation of admission fee
+  const admissionFeeSummary = useMemo(() => {
+    if (!enableAdmissionFee) return { gross: 0, discount: 0, net: 0, offerLabel: "None" };
+    const annual = Number(admAnnualCharges || 0);
+    const tuition = Number(admMonthlyTuition || 0) * Number(admTuitionMonths || 12);
+    const transport = admTransportOpted ? Number(admTransportAmount || 0) : 0;
+    const extra = Number(admExtraAmount || 0);
+    const gross = annual + tuition + transport + extra;
+
+    let discount = 0;
+    let offerLabel = "None";
+
+    if (admOfferType === "sibling") {
+      discount = Math.round((gross * 10) / 100);
+      offerLabel = "Sibling Concession (10%)";
+    } else if (admOfferType === "merit") {
+      discount = Math.round((gross * 20) / 100);
+      offerLabel = "Merit / Scholarship (20%)";
+    } else if (admOfferType === "staff") {
+      discount = Math.round((gross * 50) / 100);
+      offerLabel = "Staff Ward Concession (50%)";
+    } else if (admOfferType === "girl") {
+      discount = Math.round((gross * 15) / 100);
+      offerLabel = "Girl Child Concession (15%)";
+    } else if (admOfferType === "mgmt") {
+      discount = Math.round((gross * 25) / 100);
+      offerLabel = "Special Management Offer (25%)";
+    } else if (admOfferType === "custom_pct") {
+      discount = Math.round((gross * Number(admOfferPct || 0)) / 100);
+      offerLabel = `Custom Discount (${admOfferPct}%)`;
+    } else if (admOfferType === "custom_flat") {
+      discount = Math.min(gross, Number(admOfferFlat || 0));
+      offerLabel = `Flat Discount (₹${admOfferFlat})`;
+    }
+
+    const net = Math.max(0, gross - discount);
+    return { annual, tuition, transport, extra, gross, discount, net, offerLabel };
+  }, [
+    enableAdmissionFee,
+    admAnnualCharges,
+    admMonthlyTuition,
+    admTuitionMonths,
+    admTransportOpted,
+    admTransportAmount,
+    admExtraAmount,
+    admOfferType,
+    admOfferPct,
+    admOfferFlat,
+  ]);
 
   // 1. Fetch initial dependencies (Academic years, Classes)
   const fetchDependencies = async () => {
@@ -222,18 +319,33 @@ export default function StudentsPage() {
   // For Admission Modal Class selection
   const handleModalClassChange = async (classId) => {
     setModalClassSelected(classId);
-    form.setFieldsValue({ sectionId: undefined });
+    form.setFieldsValue({ sectionId: undefined, feeStructureId: undefined });
     if (!classId) {
       setSections([]);
+      setClassFeeStructures([]);
       return;
     }
     try {
-      const { data } = await api.get(`/sections?classId=${classId}`);
-      if (data.success) {
-        setSections(data.data.sections || []);
+      const [secRes, feeRes] = await Promise.all([
+        api.get(`/sections?classId=${classId}`),
+        api.get(`/fee-structures?classId=${classId}`),
+      ]);
+      if (secRes.data.success) {
+        setSections(secRes.data.data.sections || []);
+      }
+      if (feeRes.data.success) {
+        const structs = feeRes.data.data.feeStructures || [];
+        setClassFeeStructures(structs);
+        if (structs.length > 0) {
+          form.setFieldsValue({ feeStructureId: structs[0]._id });
+          const sumAmt = structs[0].components?.reduce((s, c) => s + (c.amount || 0), 0) || 0;
+          if (sumAmt > 0) {
+            setAdmMonthlyTuition(Math.round(sumAmt / 12));
+          }
+        }
       }
     } catch (err) {
-      console.error("Failed to load sections for modal:", err);
+      console.error("Failed to load sections/fee structures for modal:", err);
     }
   };
 
@@ -263,9 +375,47 @@ export default function StudentsPage() {
         },
       };
 
+      if (enableAdmissionFee) {
+        let offerObj = { name: "", type: "none", value: 0 };
+        if (admOfferType === "sibling") {
+          offerObj = { name: "Sibling Concession (10%)", type: "percentage", value: 10 };
+        } else if (admOfferType === "merit") {
+          offerObj = { name: "Merit / Scholarship (20%)", type: "percentage", value: 20 };
+        } else if (admOfferType === "staff") {
+          offerObj = { name: "Staff Ward Concession (50%)", type: "percentage", value: 50 };
+        } else if (admOfferType === "girl") {
+          offerObj = { name: "Girl Child Concession (15%)", type: "percentage", value: 15 };
+        } else if (admOfferType === "mgmt") {
+          offerObj = { name: "Management Special Offer (25%)", type: "percentage", value: 25 };
+        } else if (admOfferType === "custom_pct") {
+          offerObj = { name: "Custom Concession", type: "percentage", value: Number(admOfferPct || 0) };
+        } else if (admOfferType === "custom_flat") {
+          offerObj = { name: "Flat Scholarship / Discount", type: "flat", value: Number(admOfferFlat || 0) };
+        }
+
+        payload.fee = {
+          feeStructureId: values.feeStructureId || undefined,
+          annualCharges: Number(admAnnualCharges || 0),
+          monthlyTuition: Number(admMonthlyTuition || 0),
+          tuitionMonths: Number(admTuitionMonths || 12),
+          transportFee: admTransportOpted ? Number(admTransportAmount || 0) : 0,
+          transportDetails: {
+            opted: Boolean(admTransportOpted),
+            route: admTransportRoute || "",
+          },
+          extraFees: Number(admExtraAmount || 0),
+          offer: offerObj,
+          remarks: values.feeRemarks || "Configured during admission",
+        };
+      }
+
       const { data } = await api.post("/students", payload);
       if (data.success) {
-        message.success("Student admitted successfully!");
+        message.success(
+          data.data.studentFee
+            ? "Student admitted & fee structure configured successfully!"
+            : "Student admitted successfully!"
+        );
         setModalOpen(false);
         form.resetFields();
         fetchStudentsList(viewClass, viewSection);
@@ -349,6 +499,24 @@ export default function StudentsPage() {
   // Open modal with pre-filled class/section if currently viewing
   const handleOpenAdmitModal = () => {
     form.resetFields();
+    setEnableAdmissionFee(true);
+    setAdmAnnualCharges(5000);
+    setAdmMonthlyTuition(1500);
+    setAdmTuitionMonths(12);
+    setAdmTransportOpted(false);
+    setAdmTransportAmount(0);
+    setAdmTransportRoute("");
+    setAdmExtraAmount(0);
+    setAdmExtraRemarks("");
+    setAdmOfferType("none");
+    setAdmOfferPct(0);
+    setAdmOfferFlat(0);
+
+    const curYear = academicYears.find((y) => y.isCurrent) || academicYears[0];
+    if (curYear) {
+      form.setFieldsValue({ academicYear: curYear._id });
+    }
+
     if (viewClass && viewClass !== "all") {
       form.setFieldsValue({ classId: viewClass });
       handleModalClassChange(viewClass);
@@ -359,10 +527,156 @@ export default function StudentsPage() {
     setModalOpen(true);
   };
 
-  // View Student Details Drawer
-  const handleViewStudent = (student) => {
+  // View Student Details Drawer (also loads live fee status)
+  const handleViewStudent = async (student) => {
     setSelectedStudent(student);
+    setSelectedStudentFee(null);
     setDrawerOpen(true);
+    try {
+      setLoadingStudentFee(true);
+      const { data } = await api.get(`/students/${student._id}`);
+      if (data.success && data.data.studentFee) {
+        setSelectedStudentFee(data.data.studentFee);
+      }
+    } catch (e) {
+      console.warn("Could not load student fee record:", e);
+    } finally {
+      setLoadingStudentFee(false);
+    }
+  };
+
+  // Open Student Promotion Modal
+  const handleOpenPromoteModal = () => {
+    const curYear = academicYears.find((y) => y.isCurrent) || academicYears[0];
+    const srcYear = curYear?._id || null;
+    const srcClass = viewClass && viewClass !== "all" ? viewClass : (classes[0]?._id || null);
+
+    setPromoteSourceYear(srcYear);
+    setPromoteSourceClass(srcClass);
+    setPromoteStep(0);
+    setPromoteSelectedStudentIds([]);
+    promoteForm.resetFields();
+
+    promoteForm.setFieldsValue({
+      sourceYear: srcYear,
+      sourceClass: srcClass,
+      carryOverConcession: true,
+      carryOverTransport: true,
+      enablePromotionFee: true,
+      promoteTuitionMonths: 12,
+      promoteAnnualCharges: 5000,
+      promoteMonthlyTuition: 1500,
+    });
+
+    if (srcClass) {
+      loadPromotionSourceStudents(srcYear, srcClass);
+    }
+
+    setPromoteModalOpen(true);
+  };
+
+  const loadPromotionSourceStudents = async (yearId, classId) => {
+    if (!classId) return;
+    setPromoteLoadingStudents(true);
+    try {
+      let query = `classId=${classId}&status=active`;
+      if (yearId) query += `&academicYear=${yearId}`;
+      const { data } = await api.get(`/students?${query}`);
+      if (data.success) {
+        const studentList = data.data.students || [];
+        setPromoteSourceStudents(studentList);
+        setPromoteSelectedStudentIds(studentList.map((s) => s._id));
+      }
+    } catch (e) {
+      message.error("Failed to load students for promotion");
+    } finally {
+      setPromoteLoadingStudents(false);
+    }
+  };
+
+  const handlePromoteSourceClassChange = (classId) => {
+    setPromoteSourceClass(classId);
+    setPromoteSelectedStudentIds([]);
+    loadPromotionSourceStudents(promoteSourceYear, classId);
+  };
+
+  const handlePromoteTargetClassChange = async (targetClassId) => {
+    setPromoteTargetClass(targetClassId);
+    promoteForm.setFieldsValue({ targetSectionId: undefined, targetFeeStructureId: undefined });
+    if (!targetClassId) {
+      setPromoteTargetSections([]);
+      setPromoteTargetFeeStructures([]);
+      return;
+    }
+    try {
+      const [secRes, feeRes] = await Promise.all([
+        api.get(`/sections?classId=${targetClassId}`),
+        api.get(`/fee-structures?classId=${targetClassId}`),
+      ]);
+      if (secRes.data.success) {
+        setPromoteTargetSections(secRes.data.data.sections || []);
+      }
+      if (feeRes.data.success) {
+        const loadedStructs = feeRes.data.data.feeStructures || [];
+        setPromoteTargetFeeStructures(loadedStructs);
+        if (loadedStructs.length > 0) {
+          promoteForm.setFieldsValue({ targetFeeStructureId: loadedStructs[0]._id });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load target class details:", e);
+    }
+  };
+
+  const handleExecutePromotion = async (values) => {
+    if (promoteSelectedStudentIds.length === 0) {
+      message.warning("Please select at least one student to promote");
+      return;
+    }
+    setPromoteSubmitting(true);
+    try {
+      let offerObj = null;
+      if (values.promoteOfferType && values.promoteOfferType !== "none") {
+        offerObj = {
+          name: values.promoteOfferName || "Promotion Concession",
+          type: values.promoteOfferType === "percentage" ? "percentage" : "flat",
+          value: Number(values.promoteOfferValue || 0),
+        };
+      }
+
+      const payload = {
+        fromAcademicYear: promoteSourceYear,
+        toAcademicYear: values.targetYear,
+        fromClassId: promoteSourceClass,
+        toClassId: values.targetClassId,
+        toSectionId: values.targetSectionId,
+        studentIds: promoteSelectedStudentIds,
+        promotionType: values.promotionType || "promote",
+        feeConfig: values.enablePromotionFee ? {
+          feeStructureId: values.targetFeeStructureId || undefined,
+          annualCharges: Number(values.promoteAnnualCharges || 0),
+          monthlyTuition: Number(values.promoteMonthlyTuition || 0),
+          tuitionMonths: Number(values.promoteTuitionMonths || 12),
+          transportFee: Number(values.promoteTransportFee || 0),
+          carryOverTransport: Boolean(values.carryOverTransport),
+          extraFees: Number(values.promoteExtraFees || 0),
+          carryOverConcession: Boolean(values.carryOverConcession),
+          offer: offerObj,
+        } : null,
+      };
+
+      const { data } = await api.post("/students/promote", payload);
+      if (data.success) {
+        message.success(data.message || "Students promoted successfully!");
+        setPromoteModalOpen(false);
+        promoteForm.resetFields();
+        fetchStudentsList(viewClass, viewSection);
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to promote students");
+    } finally {
+      setPromoteSubmitting(false);
+    }
   };
 
   // Current selected class object
@@ -610,14 +924,23 @@ export default function StudentsPage() {
                 Refresh
               </Button>
               {canManage && (
-                <Button
-                  type="primary"
-                  icon={<UserAddOutlined />}
-                  onClick={handleOpenAdmitModal}
-                  style={{ background: "#1677ff" }}
-                >
-                  Admit Student
-                </Button>
+                <>
+                  <Button
+                    icon={<RiseOutlined />}
+                    onClick={handleOpenPromoteModal}
+                    style={{ borderColor: "#10b981", color: "#047857", fontWeight: 600 }}
+                  >
+                    Promote Students
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<UserAddOutlined />}
+                    onClick={handleOpenAdmitModal}
+                    style={{ background: "#1677ff" }}
+                  >
+                    Admit Student
+                  </Button>
+                </>
               )}
             </Space>
           </Col>
@@ -1162,6 +1485,116 @@ export default function StudentsPage() {
                   : "Never logged in"}
               </Descriptions.Item>
             </Descriptions>
+            {/* Fee & Accounts Status */}
+            <Title level={5} style={{ marginTop: 20 }}>
+              <DollarCircleOutlined style={{ marginRight: 6, color: "#fa8c16" }} />
+              Fee & Account Status ({selectedStudent.academicYear?.name || "Current Session"})
+            </Title>
+            {loadingStudentFee ? (
+              <Skeleton active paragraph={{ rows: 3 }} />
+            ) : selectedStudentFee ? (
+              <Card
+                size="small"
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #fed7aa",
+                  background: "#fffaf0",
+                  marginBottom: 20,
+                }}
+              >
+                <Row gutter={12} style={{ marginBottom: 12 }}>
+                  <Col span={8}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11 }}>Payable Fee</span>}
+                      value={`₹${(selectedStudentFee.payableAmount || 0).toLocaleString()}`}
+                      valueStyle={{ fontSize: 16, fontWeight: 700, color: "#c2410c" }}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11 }}>Paid Amount</span>}
+                      value={`₹${(selectedStudentFee.paidAmount || 0).toLocaleString()}`}
+                      valueStyle={{ fontSize: 16, fontWeight: 700, color: "#15803d" }}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11 }}>Due Balance</span>}
+                      value={`₹${(selectedStudentFee.dueAmount || 0).toLocaleString()}`}
+                      valueStyle={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: selectedStudentFee.dueAmount > 0 ? "#b91c1c" : "#15803d",
+                      }}
+                    />
+                  </Col>
+                </Row>
+                <Descriptions bordered size="small" column={1}>
+                  <Descriptions.Item label="Fee Status">
+                    <Tag
+                      color={
+                        selectedStudentFee.status === "paid"
+                          ? "green"
+                          : selectedStudentFee.status === "partial"
+                          ? "orange"
+                          : "red"
+                      }
+                    >
+                      {(selectedStudentFee.status || "PENDING").toUpperCase()}
+                    </Tag>
+                  </Descriptions.Item>
+                  {selectedStudentFee.annualCharges > 0 && (
+                    <Descriptions.Item label="Annual Charges">
+                      ₹{selectedStudentFee.annualCharges.toLocaleString()}
+                    </Descriptions.Item>
+                  )}
+                  {selectedStudentFee.monthlyTuition > 0 && (
+                    <Descriptions.Item label="Tuition Fee">
+                      ₹{selectedStudentFee.monthlyTuition.toLocaleString()}/mo ×{" "}
+                      {selectedStudentFee.tuitionMonths || 12} mos = ₹
+                      {(
+                        (selectedStudentFee.monthlyTuition || 0) *
+                        (selectedStudentFee.tuitionMonths || 12)
+                      ).toLocaleString()}
+                    </Descriptions.Item>
+                  )}
+                  {selectedStudentFee.transportFee > 0 && (
+                    <Descriptions.Item label="Transport Fee">
+                      ₹{selectedStudentFee.transportFee.toLocaleString()}{" "}
+                      {selectedStudentFee.transportDetails?.route &&
+                        `(${selectedStudentFee.transportDetails.route})`}
+                    </Descriptions.Item>
+                  )}
+                  {selectedStudentFee.extraFees > 0 && (
+                    <Descriptions.Item label="Extra / Activity Charges">
+                      ₹{selectedStudentFee.extraFees.toLocaleString()}
+                    </Descriptions.Item>
+                  )}
+                  {selectedStudentFee.discount > 0 && (
+                    <Descriptions.Item label="Scholarship / Offer">
+                      <Tag color="green">
+                        {selectedStudentFee.offer?.name || "Discount"}: -₹
+                        {selectedStudentFee.discount.toLocaleString()}
+                      </Tag>
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </Card>
+            ) : (
+              <Card
+                size="small"
+                style={{
+                  borderRadius: 8,
+                  background: "#f8fafc",
+                  marginBottom: 20,
+                  border: "1px dashed #cbd5e1",
+                }}
+              >
+                <Text type="secondary">
+                  No specific fee structure assigned yet for this academic year. The accountant can configure or collect fee anytime from the Fees Management page.
+                </Text>
+              </Card>
+            )}
           </div>
         )}
       </Drawer>
@@ -1172,7 +1605,7 @@ export default function StudentsPage() {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         footer={null}
-        width={720}
+        width={840}
         destroyOnClose
       >
         <Form
@@ -1317,6 +1750,227 @@ export default function StudentsPage() {
             </Col>
           </Row>
 
+          {/* Fee Setup & Scholarship / Offer Section */}
+          <Divider orientation="left" style={{ margin: "24px 0 16px" }}>
+            <Space>
+              <DollarCircleOutlined style={{ color: "#fa8c16" }} />
+              <span style={{ fontWeight: 600 }}>Fee Structure & Scholarship / Offer Setup</span>
+            </Space>
+          </Divider>
+
+          <Card
+            size="small"
+            style={{
+              borderRadius: 8,
+              border: enableAdmissionFee ? "1px solid #fed7aa" : "1px solid #e2e8f0",
+              background: enableAdmissionFee ? "#fffaf0" : "#f8fafc",
+              marginBottom: 20,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: enableAdmissionFee ? 16 : 0 }}>
+              <div>
+                <Text strong style={{ fontSize: 14 }}>Configure Student Fee for this Session</Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Set up annual charges, monthly tuition, transport, extra fees, and scholarship/offer discount
+                </Text>
+              </div>
+              <Switch
+                checked={enableAdmissionFee}
+                onChange={setEnableAdmissionFee}
+                checkedChildren="Enabled"
+                unCheckedChildren="Skip"
+              />
+            </div>
+
+            {enableAdmissionFee && (
+              <div style={{ marginTop: 12 }}>
+                {classFeeStructures.length > 0 && (
+                  <Form.Item name="feeStructureId" label="Fee Structure Template (Optional)">
+                    <Select placeholder="Select Template to Pre-fill Fee" allowClear>
+                      {classFeeStructures.map((f) => (
+                        <Option key={f._id} value={f._id}>
+                          {f.name} ({f.components?.length || 0} components)
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                )}
+
+                <Row gutter={16}>
+                  <Col xs={24} sm={8}>
+                    <Form.Item label="Annual & Admission Charges (₹)">
+                      <InputNumber
+                        min={0}
+                        style={{ width: "100%" }}
+                        value={admAnnualCharges}
+                        onChange={(v) => setAdmAnnualCharges(v || 0)}
+                        prefix="₹"
+                        placeholder="5000"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item label="Monthly Tuition Fee (₹)">
+                      <InputNumber
+                        min={0}
+                        style={{ width: "100%" }}
+                        value={admMonthlyTuition}
+                        onChange={(v) => setAdmMonthlyTuition(v || 0)}
+                        prefix="₹"
+                        placeholder="1500"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item label="Tuition Months">
+                      <Select
+                        value={admTuitionMonths}
+                        onChange={setAdmTuitionMonths}
+                        style={{ width: "100%" }}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                          <Option key={m} value={m}>
+                            {m} {m === 1 ? "Month" : "Months"} (₹{((admMonthlyTuition || 0) * m).toLocaleString()})
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                {/* Transport Service */}
+                <div style={{ padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, marginBottom: 16 }}>
+                  <Checkbox
+                    checked={admTransportOpted}
+                    onChange={(e) => setAdmTransportOpted(e.target.checked)}
+                    style={{ fontWeight: 600, color: "#166534" }}
+                  >
+                    <CarOutlined style={{ marginRight: 6 }} />
+                    Student Requires School Transport / Bus Facility
+                  </Checkbox>
+
+                  {admTransportOpted && (
+                    <Row gutter={16} style={{ marginTop: 12 }}>
+                      <Col xs={24} sm={14}>
+                        <Input
+                          placeholder="Route / Pickup Stop (e.g. Route 3 - Sector 12)"
+                          value={admTransportRoute}
+                          onChange={(e) => setAdmTransportRoute(e.target.value)}
+                        />
+                      </Col>
+                      <Col xs={24} sm={10}>
+                        <InputNumber
+                          min={0}
+                          style={{ width: "100%" }}
+                          prefix="₹"
+                          placeholder="Annual Transport Fee"
+                          value={admTransportAmount}
+                          onChange={(v) => setAdmTransportAmount(v || 0)}
+                        />
+                      </Col>
+                    </Row>
+                  )}
+                </div>
+
+                {/* Extra Fees & Concessions */}
+                <Row gutter={16}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="Extra / Activity Charges (₹)">
+                      <InputNumber
+                        min={0}
+                        style={{ width: "100%" }}
+                        value={admExtraAmount}
+                        onChange={(v) => setAdmExtraAmount(v || 0)}
+                        prefix="₹"
+                        placeholder="e.g. 1000 (Lab, Uniform, Books)"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item label="Scholarship / Offer Scheme">
+                      <Select value={admOfferType} onChange={setAdmOfferType}>
+                        <Option value="none">No Concession / Normal Fee</Option>
+                        <Option value="sibling">Sibling Concession (10% Off)</Option>
+                        <Option value="merit">Academic Merit Scholarship (20% Off)</Option>
+                        <Option value="staff">Staff Ward Discount (50% Off)</Option>
+                        <Option value="girl">Girl Child Concession (15% Off)</Option>
+                        <Option value="mgmt">Special Management Offer (25% Off)</Option>
+                        <Option value="custom_pct">Custom Percentage Concession (%)</Option>
+                        <Option value="custom_flat">Custom Flat Discount (₹)</Option>
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                {admOfferType === "custom_pct" && (
+                  <Form.Item label="Custom Discount Percentage (%)">
+                    <InputNumber
+                      min={1}
+                      max={100}
+                      style={{ width: "100%" }}
+                      value={admOfferPct}
+                      onChange={(v) => setAdmOfferPct(v || 0)}
+                      placeholder="e.g. 15%"
+                    />
+                  </Form.Item>
+                )}
+
+                {admOfferType === "custom_flat" && (
+                  <Form.Item label="Custom Flat Discount Amount (₹)">
+                    <InputNumber
+                      min={1}
+                      style={{ width: "100%" }}
+                      prefix="₹"
+                      value={admOfferFlat}
+                      onChange={(v) => setAdmOfferFlat(v || 0)}
+                      placeholder="e.g. 2000"
+                    />
+                  </Form.Item>
+                )}
+
+                {/* Live Real-time Calculation Summary Box */}
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 8,
+                    background: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
+                    marginTop: 10,
+                  }}
+                >
+                  <Row gutter={12} align="middle">
+                    <Col xs={24} sm={14}>
+                      <Space direction="vertical" size={2} style={{ display: "flex" }}>
+                        <Text style={{ fontSize: 12 }}>
+                          Annual: <b>₹{admissionFeeSummary.annual.toLocaleString()}</b> + Tuition: <b>₹{admissionFeeSummary.tuition.toLocaleString()}</b>
+                          {admissionFeeSummary.transport > 0 && ` + Transport: ₹${admissionFeeSummary.transport.toLocaleString()}`}
+                          {admissionFeeSummary.extra > 0 && ` + Extra: ₹${admissionFeeSummary.extra.toLocaleString()}`}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Gross Total: <b>₹{admissionFeeSummary.gross.toLocaleString()}</b>
+                          {admissionFeeSummary.discount > 0 && (
+                            <span style={{ color: "#059669", marginLeft: 8 }}>
+                              • Discount ({admissionFeeSummary.offerLabel}): <b>-₹{admissionFeeSummary.discount.toLocaleString()}</b>
+                            </span>
+                          )}
+                        </Text>
+                      </Space>
+                    </Col>
+                    <Col xs={24} sm={10} style={{ textAlign: "right" }}>
+                      <Text style={{ fontSize: 11, color: "#047857", textTransform: "uppercase", fontWeight: 700, display: "block" }}>
+                        Net Payable Fee
+                      </Text>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: "#065f46" }}>
+                        ₹{admissionFeeSummary.net.toLocaleString()}
+                      </span>
+                    </Col>
+                  </Row>
+                </Card>
+              </div>
+            )}
+          </Card>
+
           <div style={{ textAlign: "right", marginTop: 16 }}>
             <Space>
               <Button onClick={() => setModalOpen(false)}>Cancel</Button>
@@ -1325,6 +1979,366 @@ export default function StudentsPage() {
               </Button>
             </Space>
           </div>
+        </Form>
+      </Modal>
+
+      {/* 5B. Student Promotion Wizard Modal */}
+      <Modal
+        title={
+          <Space>
+            <RiseOutlined style={{ color: "#10b981" }} />
+            <span>Academic Progression & Student Promotion Wizard</span>
+          </Space>
+        }
+        open={promoteModalOpen}
+        onCancel={() => setPromoteModalOpen(false)}
+        footer={null}
+        width={860}
+        destroyOnClose
+      >
+        <div style={{ padding: "10px 0 20px" }}>
+          <Steps
+            current={promoteStep}
+            onChange={setPromoteStep}
+            items={[
+              { title: "Select Students", description: "Source Class & Roster" },
+              { title: "Target & Fee Setup", description: "Destination & Fees" },
+              { title: "Confirm & Promote", description: "Execute Progression" },
+            ]}
+          />
+        </div>
+
+        <Form
+          form={promoteForm}
+          layout="vertical"
+          onFinish={handleExecutePromotion}
+          requiredMark="optional"
+        >
+          {/* STEP 0: Select Source Class & Students */}
+          {promoteStep === 0 && (
+            <div>
+              <Alert
+                type="info"
+                showIcon
+                message="Step 1: Choose the class and select students to promote or repeat"
+                description="Students selected here will be transferred to the target academic session and class."
+                style={{ marginBottom: 16 }}
+              />
+
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="sourceYear" label="Source Academic Session" rules={[{ required: true }]}>
+                    <Select
+                      placeholder="Select Source Session"
+                      value={promoteSourceYear}
+                      onChange={(y) => {
+                        setPromoteSourceYear(y);
+                        loadPromotionSourceStudents(y, promoteSourceClass);
+                      }}
+                    >
+                      {academicYears.map((y) => (
+                        <Option key={y._id} value={y._id}>
+                          {y.name} {y.isCurrent && "(Current)"}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="sourceClass" label="Source Class" rules={[{ required: true }]}>
+                    <Select
+                      placeholder="Select Source Class"
+                      value={promoteSourceClass}
+                      onChange={handlePromoteSourceClassChange}
+                    >
+                      {classes.map((c) => (
+                        <Option key={c._id} value={c._id}>
+                          {c.name} ({c.code})
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Text strong>
+                  Student Roster ({promoteSelectedStudentIds.length} of {promoteSourceStudents.length} Selected)
+                </Text>
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() => setPromoteSelectedStudentIds(promoteSourceStudents.map((s) => s._id))}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => setPromoteSelectedStudentIds([])}
+                  >
+                    Deselect All
+                  </Button>
+                </Space>
+              </div>
+
+              <Table
+                size="small"
+                loading={promoteLoadingStudents}
+                dataSource={promoteSourceStudents}
+                rowKey="_id"
+                pagination={{ pageSize: 8 }}
+                rowSelection={{
+                  selectedRowKeys: promoteSelectedStudentIds,
+                  onChange: (keys) => setPromoteSelectedStudentIds(keys),
+                }}
+                columns={[
+                  {
+                    title: "Roll No",
+                    dataIndex: "rollNumber",
+                    key: "rollNumber",
+                    width: 80,
+                    render: (r) => `#${r}`,
+                  },
+                  {
+                    title: "Student Name",
+                    key: "name",
+                    render: (_, r) => `${r.firstName} ${r.lastName || ""}`,
+                  },
+                  {
+                    title: "Admission No",
+                    dataIndex: "admissionNumber",
+                    key: "admissionNumber",
+                  },
+                  {
+                    title: "Section",
+                    dataIndex: ["section", "name"],
+                    key: "section",
+                    render: (sec) => sec || "A",
+                  },
+                ]}
+              />
+
+              <div style={{ textAlign: "right", marginTop: 20 }}>
+                <Button
+                  type="primary"
+                  icon={<ArrowRightOutlined />}
+                  disabled={promoteSelectedStudentIds.length === 0}
+                  onClick={() => setPromoteStep(1)}
+                >
+                  Next: Configure Target & Fees
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 1: Target Destination & Fee Configuration */}
+          {promoteStep === 1 && (
+            <div>
+              <Alert
+                type="success"
+                showIcon
+                message="Step 2: Choose destination session, class, and fee structure"
+                description="Configure the fee breakdown, annual charges, transport, and extra fees for promoted students in their new session."
+                style={{ marginBottom: 16 }}
+              />
+
+              <Title level={5}>Destination Academic Details</Title>
+              <Row gutter={16}>
+                <Col xs={24} sm={8}>
+                  <Form.Item
+                    name="targetYear"
+                    label="Target Academic Session"
+                    rules={[{ required: true, message: "Select target session" }]}
+                  >
+                    <Select
+                      placeholder="Select Target Session"
+                      value={promoteTargetYear}
+                      onChange={setPromoteTargetYear}
+                    >
+                      {academicYears.map((y) => (
+                        <Option key={y._id} value={y._id}>
+                          {y.name} {y.isCurrent && "(Current)"}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item
+                    name="targetClassId"
+                    label="Target Class"
+                    rules={[{ required: true, message: "Select target class" }]}
+                  >
+                    <Select
+                      placeholder="Select Target Class"
+                      onChange={handlePromoteTargetClassChange}
+                    >
+                      {classes.map((c) => (
+                        <Option key={c._id} value={c._id}>
+                          {c.name} ({c.code})
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item
+                    name="targetSectionId"
+                    label="Target Section"
+                    rules={[{ required: true, message: "Select target section" }]}
+                  >
+                    <Select placeholder="Select Target Section" disabled={promoteTargetSections.length === 0}>
+                      {promoteTargetSections.map((s) => (
+                        <Option key={s._id} value={s._id}>
+                          {s.name} (Cap: {s.capacity || 40})
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider orientation="left" style={{ margin: "16px 0" }}>
+                <DollarCircleOutlined style={{ color: "#fa8c16", marginRight: 6 }} />
+                New Session Fee Configuration
+              </Divider>
+
+              <Form.Item name="enablePromotionFee" valuePropName="checked">
+                <Checkbox defaultChecked>
+                  <b>Automatically assign fee structure to all promoted students for the new session</b>
+                </Checkbox>
+              </Form.Item>
+
+              {promoteTargetFeeStructures.length > 0 && (
+                <Form.Item name="targetFeeStructureId" label="Class Fee Structure Template (Optional)">
+                  <Select placeholder="Select Template" allowClear>
+                    {promoteTargetFeeStructures.map((f) => (
+                      <Option key={f._id} value={f._id}>
+                        {f.name} ({f.components?.length || 0} components)
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+
+              <Row gutter={16}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="promoteAnnualCharges" label="New Annual Charges (₹)">
+                    <InputNumber min={0} style={{ width: "100%" }} prefix="₹" placeholder="5000" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="promoteMonthlyTuition" label="New Monthly Tuition (₹)">
+                    <InputNumber min={0} style={{ width: "100%" }} prefix="₹" placeholder="1500" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="promoteTuitionMonths" label="Tuition Months">
+                    <Select defaultValue={12}>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                        <Option key={m} value={m}>
+                          {m} {m === 1 ? "Month" : "Months"}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="carryOverTransport" valuePropName="checked">
+                    <Checkbox defaultChecked>
+                      <b>Carry forward student's existing transport route & opt-in</b>
+                    </Checkbox>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="carryOverConcession" valuePropName="checked">
+                    <Checkbox defaultChecked>
+                      <b>Carry forward student's previous scholarship / concession</b>
+                    </Checkbox>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="promoteExtraFees" label="New Extra / Miscellaneous Charges (₹)">
+                    <InputNumber min={0} style={{ width: "100%" }} prefix="₹" placeholder="0" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="promoteTransportFee" label="Default Transport Fee (₹) [If applicable]">
+                    <InputNumber min={0} style={{ width: "100%" }} prefix="₹" placeholder="0" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+                <Button onClick={() => setPromoteStep(0)}>Back</Button>
+                <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => setPromoteStep(2)}>
+                  Next: Review & Confirm
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2: Review & Confirm */}
+          {promoteStep === 2 && (
+            <div>
+              <Alert
+                type="warning"
+                showIcon
+                message="Step 3: Review and Confirm Promotion"
+                description={`You are about to promote ${promoteSelectedStudentIds.length} students to their new session. Please review the details below before executing.`}
+                style={{ marginBottom: 16 }}
+              />
+
+              <Descriptions bordered size="small" column={2} style={{ marginBottom: 20 }}>
+                <Descriptions.Item label="Students Selected">
+                  <Tag color="blue" style={{ fontSize: 13, fontWeight: 700 }}>
+                    {promoteSelectedStudentIds.length} Students
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Action">
+                  <Tag color="green">PROMOTE TO NEXT SESSION</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Destination Session">
+                  {academicYears.find((y) => y._id === promoteForm.getFieldValue("targetYear"))?.name || "Selected Session"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Destination Class & Sec">
+                  {classes.find((c) => c._id === promoteForm.getFieldValue("targetClassId"))?.name || "Class"} -{" "}
+                  {promoteTargetSections.find((s) => s._id === promoteForm.getFieldValue("targetSectionId"))?.name || "Section"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Annual Charges">
+                  ₹{Number(promoteForm.getFieldValue("promoteAnnualCharges") || 0).toLocaleString()}
+                </Descriptions.Item>
+                <Descriptions.Item label="Tuition Fee">
+                  ₹{Number(promoteForm.getFieldValue("promoteMonthlyTuition") || 0).toLocaleString()}/mo
+                </Descriptions.Item>
+                <Descriptions.Item label="Transport Carry-Forward">
+                  {promoteForm.getFieldValue("carryOverTransport") ? "YES (Retain routes)" : "NO"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Scholarship Carry-Forward">
+                  {promoteForm.getFieldValue("carryOverConcession") ? "YES (Retain discounts)" : "NO"}
+                </Descriptions.Item>
+              </Descriptions>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+                <Button onClick={() => setPromoteStep(1)}>Back</Button>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={promoteSubmitting}
+                  style={{ background: "#10b981", borderColor: "#10b981", fontWeight: 700 }}
+                  icon={<CheckOutlined />}
+                >
+                  Execute Promotion & Fee Allocation
+                </Button>
+              </div>
+            </div>
+          )}
         </Form>
       </Modal>
 

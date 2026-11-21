@@ -7,6 +7,10 @@ const Class = require("../models/Class");
 const Section = require("../models/Section");
 const User = require("../models/User");
 const Role = require("../models/Role");
+const StudentFee = require("../models/StudentFee");
+const FeeStructure = require("../models/FeeStructure");
+const { calculateStudentFeeDetails } = require("../services/feeCalculation.service");
+
 const tempPassword = () => crypto.randomBytes(5).toString("base64url");
 const createStudent = async (req, res) => {
   try {
@@ -177,15 +181,58 @@ const createStudent = async (req, res) => {
       });
       student.user = user._id;
       await student.save();
+
+      let studentFee = null;
+      if (req.body.fee) {
+        try {
+          const feeConfig = req.body.fee;
+          let feeStructure = null;
+          if (feeConfig.feeStructureId) {
+            feeStructure = await FeeStructure.findOne({
+              _id: feeConfig.feeStructureId,
+              school: schoolId,
+              isActive: true,
+            });
+          }
+
+          const feeDetails = calculateStudentFeeDetails({
+            feeStructure,
+            components: feeConfig.components || [],
+            annualCharges: feeConfig.annualCharges || 0,
+            monthlyTuition: feeConfig.monthlyTuition || 0,
+            tuitionMonths: feeConfig.tuitionMonths || 12,
+            transportFee: feeConfig.transportFee || 0,
+            transportDetails: feeConfig.transportDetails || {},
+            extraFees: feeConfig.extraFees || 0,
+            offer: feeConfig.offer || null,
+            discount: feeConfig.discount || 0,
+            remarks: feeConfig.remarks || "Assigned on student admission",
+          });
+
+          studentFee = await StudentFee.create({
+            school: schoolId,
+            student: student._id,
+            academicYear: academicYear,
+            feeStructure: feeStructure?._id || undefined,
+            ...feeDetails,
+          });
+        } catch (feeErr) {
+          console.warn("Auto-assignment of fee on admission failed:", feeErr.message);
+        }
+      }
+
       return res
         .status(201)
         .json({
           success: true,
-          message: "Student and login account created successfully",
+          message: studentFee
+            ? "Student, login account, and fee setup created successfully"
+            : "Student and login account created successfully",
           data: {
             student,
             user: { id: user._id, email: user.email, role: "student" },
             temporaryPassword: password ? undefined : plain,
+            studentFee,
           },
         });
     } catch (e) {
@@ -281,7 +328,14 @@ const getStudentById = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Student not found" });
-    return res.json({ success: true, data: { student } });
+
+    const studentFee = await StudentFee.findOne({
+      school: req.user.school._id,
+      student: student._id,
+      academicYear: student.academicYear?._id || student.academicYear,
+    }).populate("feeStructure", "name description components");
+
+    return res.json({ success: true, data: { student, studentFee } });
   } catch (e) {
     return res
       .status(400)
@@ -415,10 +469,211 @@ const deleteStudent = async (req, res) => {
       .json({ success: false, message: "Failed to delete student" });
   }
 };
+
+/**
+ * Bulk Promote / Transfer Students across Academic Sessions with Fee Configuration
+ */
+const promoteStudents = async (req, res) => {
+  try {
+    const rawSchoolId = req.user.school?._id || req.user.school;
+    const {
+      fromAcademicYear,
+      toAcademicYear,
+      fromClassId,
+      toClassId,
+      toSectionId,
+      studentIds,
+      promotionType = "promote",
+      feeConfig = null,
+    } = req.body;
+
+    if (
+      !fromAcademicYear ||
+      !toAcademicYear ||
+      !fromClassId ||
+      !toClassId ||
+      !toSectionId ||
+      !Array.isArray(studentIds) ||
+      studentIds.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Source session, target session, source class, target class, target section and student list are required",
+      });
+    }
+
+    // Verify target year, class, section
+    const targetYear = await AcademicYear.findOne({
+      _id: toAcademicYear,
+      school: rawSchoolId,
+    });
+    if (!targetYear) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Target academic year not found" });
+    }
+
+    const targetClass = await Class.findOne({
+      _id: toClassId,
+      school: rawSchoolId,
+      isActive: true,
+    });
+    if (!targetClass) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Target class not found" });
+    }
+
+    const targetSection = await Section.findOne({
+      _id: toSectionId,
+      school: rawSchoolId,
+      class: toClassId,
+      isActive: true,
+    });
+    if (!targetSection) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Target section not found" });
+    }
+
+    // Find active students to promote
+    const studentsToPromote = await Student.find({
+      _id: { $in: studentIds },
+      school: rawSchoolId,
+      status: "active",
+    });
+
+    if (studentsToPromote.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "No active students found for promotion" });
+    }
+
+    // Load target fee structure template if requested
+    let targetFeeStructure = null;
+    if (feeConfig?.feeStructureId) {
+      targetFeeStructure = await FeeStructure.findOne({
+        _id: feeConfig.feeStructureId,
+        school: rawSchoolId,
+        isActive: true,
+      });
+    }
+
+    // Determine starting rollNumber in target section
+    const lastRollStudent = await Student.findOne({
+      school: rawSchoolId,
+      academicYear: toAcademicYear,
+      class: toClassId,
+      section: toSectionId,
+    }).sort({ rollNumber: -1 });
+
+    let nextRoll = lastRollStudent?.rollNumber ? lastRollStudent.rollNumber + 1 : 1;
+
+    const promoted = [];
+    const feesCreated = [];
+
+    for (const st of studentsToPromote) {
+      // Update student enrollment
+      st.academicYear = toAcademicYear;
+      st.class = toClassId;
+      st.section = toSectionId;
+      st.rollNumber = nextRoll++;
+      st.status = "active";
+      await st.save();
+      promoted.push(st);
+
+      // Auto-assign fee for the new academic session if feeConfig is supplied
+      if (feeConfig) {
+        const existingTargetFee = await StudentFee.findOne({
+          school: rawSchoolId,
+          student: st._id,
+          academicYear: toAcademicYear,
+        });
+
+        if (!existingTargetFee) {
+          // Carry forward concession / scholarship if requested
+          let studentOffer = feeConfig.offer || null;
+          if (feeConfig.carryOverConcession) {
+            const prevFee = await StudentFee.findOne({
+              school: rawSchoolId,
+              student: st._id,
+              academicYear: fromAcademicYear,
+            });
+            if (prevFee?.offer && prevFee.offer.type !== "none") {
+              studentOffer = prevFee.offer;
+            } else if (prevFee?.discount > 0) {
+              studentOffer = {
+                name: "Carried Forward Concession",
+                type: "flat",
+                value: prevFee.discount,
+              };
+            }
+          }
+
+          // Carry forward transport if requested
+          let studentTransportFee = feeConfig.transportFee || 0;
+          let studentTransportDetails = feeConfig.transportDetails || {};
+          if (feeConfig.carryOverTransport) {
+            const prevFee = await StudentFee.findOne({
+              school: rawSchoolId,
+              student: st._id,
+              academicYear: fromAcademicYear,
+            });
+            if (prevFee?.transportFee > 0) {
+              studentTransportFee = prevFee.transportFee;
+              studentTransportDetails = prevFee.transportDetails || { opted: true };
+            }
+          }
+
+          const feeDetails = calculateStudentFeeDetails({
+            feeStructure: targetFeeStructure,
+            components: feeConfig.components || [],
+            annualCharges: feeConfig.annualCharges || 0,
+            monthlyTuition: feeConfig.monthlyTuition || 0,
+            tuitionMonths: feeConfig.tuitionMonths || 12,
+            transportFee: studentTransportFee,
+            transportDetails: studentTransportDetails,
+            extraFees: feeConfig.extraFees || 0,
+            offer: studentOffer,
+            discount: feeConfig.discount || 0,
+            remarks: `Fee configured during student promotion (${targetYear.name})`,
+          });
+
+          const createdFee = await StudentFee.create({
+            school: rawSchoolId,
+            student: st._id,
+            academicYear: toAcademicYear,
+            feeStructure: targetFeeStructure?._id || undefined,
+            ...feeDetails,
+          });
+          feesCreated.push(createdFee);
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully promoted ${promoted.length} students to ${targetClass.name} - ${targetSection.name} (${targetYear.name}) with fee setup`,
+      data: {
+        promotedCount: promoted.length,
+        feesCreatedCount: feesCreated.length,
+      },
+    });
+  } catch (error) {
+    console.error("Promote Students Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to promote students",
+    });
+  }
+};
+
 module.exports = {
   createStudent,
   getStudents,
   getStudentById,
   updateStudent,
   deleteStudent,
+  promoteStudents,
 };

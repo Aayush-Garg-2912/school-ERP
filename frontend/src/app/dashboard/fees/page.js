@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Card,
   Tabs,
@@ -22,6 +22,12 @@ import {
   Divider,
   Descriptions,
   message,
+  Drawer,
+  Checkbox,
+  Switch,
+  Badge,
+  Alert,
+  Tooltip,
 } from "antd";
 import {
   DollarOutlined,
@@ -34,6 +40,13 @@ import {
   DeleteOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  WhatsAppOutlined,
+  SearchOutlined,
+  EyeOutlined,
+  EditOutlined,
+  CarOutlined,
+  GiftOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import api from "@/lib/api";
@@ -47,7 +60,11 @@ export default function FeesPage() {
   const [selectedYear, setSelectedYear] = useState(null);
   const [classes, setClasses] = useState([]);
   const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedClassFilter, setSelectedClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [searchText, setSearchText] = useState("");
+  const [remindingId, setRemindingId] = useState(null);
+  const [bulkReminding, setBulkReminding] = useState(false);
 
   // Data states
   const [studentFees, setStudentFees] = useState([]);
@@ -65,13 +82,85 @@ export default function FeesPage() {
   const [selectedFeeForPayment, setSelectedFeeForPayment] = useState(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
+  // Student Fee Breakdown Drawer
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [selectedFeeDetail, setSelectedFeeDetail] = useState(null);
+  const [selectedFeePayments, setSelectedFeePayments] = useState([]);
+  const [loadingFeeDetail, setLoadingFeeDetail] = useState(false);
+
+  // Edit Fee Modal
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingFee, setEditingFee] = useState(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editForm] = Form.useForm();
+
   // Receipt Modal
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
 
+  // Assign Fee breakdown state
+  const [assignAnnualCharges, setAssignAnnualCharges] = useState(5000);
+  const [assignMonthlyTuition, setAssignMonthlyTuition] = useState(1500);
+  const [assignTuitionMonths, setAssignTuitionMonths] = useState(12);
+  const [assignTransportOpted, setAssignTransportOpted] = useState(false);
+  const [assignTransportAmount, setAssignTransportAmount] = useState(0);
+  const [assignTransportRoute, setAssignTransportRoute] = useState("");
+  const [assignExtraAmount, setAssignExtraAmount] = useState(0);
+  const [assignOfferType, setAssignOfferType] = useState("none");
+  const [assignOfferPct, setAssignOfferPct] = useState(0);
+  const [assignOfferFlat, setAssignOfferFlat] = useState(0);
+
   const [assignForm] = Form.useForm();
   const [structureForm] = Form.useForm();
   const [paymentForm] = Form.useForm();
+
+  // Real-time calculation of assign fee
+  const assignFeeSummary = useMemo(() => {
+    const annual = Number(assignAnnualCharges || 0);
+    const tuition = Number(assignMonthlyTuition || 0) * Number(assignTuitionMonths || 12);
+    const transport = assignTransportOpted ? Number(assignTransportAmount || 0) : 0;
+    const extra = Number(assignExtraAmount || 0);
+    const gross = annual + tuition + transport + extra;
+
+    let discount = 0;
+    let offerLabel = "None";
+
+    if (assignOfferType === "sibling") {
+      discount = Math.round((gross * 10) / 100);
+      offerLabel = "Sibling Concession (10%)";
+    } else if (assignOfferType === "merit") {
+      discount = Math.round((gross * 20) / 100);
+      offerLabel = "Merit / Scholarship (20%)";
+    } else if (assignOfferType === "staff") {
+      discount = Math.round((gross * 50) / 100);
+      offerLabel = "Staff Ward Concession (50%)";
+    } else if (assignOfferType === "girl") {
+      discount = Math.round((gross * 15) / 100);
+      offerLabel = "Girl Child Concession (15%)";
+    } else if (assignOfferType === "mgmt") {
+      discount = Math.round((gross * 25) / 100);
+      offerLabel = "Special Management Offer (25%)";
+    } else if (assignOfferType === "custom_pct") {
+      discount = Math.round((gross * Number(assignOfferPct || 0)) / 100);
+      offerLabel = `Custom Discount (${assignOfferPct}%)`;
+    } else if (assignOfferType === "custom_flat") {
+      discount = Math.min(gross, Number(assignOfferFlat || 0));
+      offerLabel = `Flat Discount (₹${assignOfferFlat})`;
+    }
+
+    const net = Math.max(0, gross - discount);
+    return { annual, tuition, transport, extra, gross, discount, net, offerLabel };
+  }, [
+    assignAnnualCharges,
+    assignMonthlyTuition,
+    assignTuitionMonths,
+    assignTransportOpted,
+    assignTransportAmount,
+    assignExtraAmount,
+    assignOfferType,
+    assignOfferPct,
+    assignOfferFlat,
+  ]);
 
   // Load Initial Dependencies
   const fetchInitialData = async () => {
@@ -114,12 +203,19 @@ export default function FeesPage() {
     }
   };
 
-  const fetchStudentFees = async (yearId) => {
+  const fetchStudentFees = async (
+    yearId = selectedYear,
+    stFilter = statusFilter,
+    clsFilter = selectedClassFilter,
+    search = searchText
+  ) => {
     if (!yearId) return;
     setLoading(true);
     try {
       let query = `academicYear=${yearId}`;
-      if (statusFilter !== "all") query += `&status=${statusFilter}`;
+      if (stFilter !== "all") query += `&status=${stFilter}`;
+      if (clsFilter && clsFilter !== "all") query += `&classId=${clsFilter}`;
+      if (search && search.trim()) query += `&search=${encodeURIComponent(search.trim())}`;
       const { data } = await api.get(`/student-fees?${query}`);
       if (data.success) setStudentFees(data.data.studentFees || []);
     } catch (err) {
@@ -149,20 +245,39 @@ export default function FeesPage() {
     if (selectedYear) {
       fetchClasses(selectedYear);
       fetchFeeStructures(selectedYear);
-      fetchStudentFees(selectedYear);
+      fetchStudentFees(selectedYear, statusFilter, selectedClassFilter, searchText);
       fetchPayments();
     }
-  }, [selectedYear, statusFilter]);
+  }, [selectedYear, statusFilter, selectedClassFilter]);
 
   // Assign Fee to Student
   const handleAssignFee = async (values) => {
     setSubmittingAssign(true);
     try {
+      let offerObj = { name: "", type: "none", value: 0 };
+      if (assignOfferType === "sibling") offerObj = { name: "Sibling Concession (10%)", type: "percentage", value: 10 };
+      else if (assignOfferType === "merit") offerObj = { name: "Merit / Scholarship (20%)", type: "percentage", value: 20 };
+      else if (assignOfferType === "staff") offerObj = { name: "Staff Ward Concession (50%)", type: "percentage", value: 50 };
+      else if (assignOfferType === "girl") offerObj = { name: "Girl Child Concession (15%)", type: "percentage", value: 15 };
+      else if (assignOfferType === "mgmt") offerObj = { name: "Special Management Offer (25%)", type: "percentage", value: 25 };
+      else if (assignOfferType === "custom_pct") offerObj = { name: "Custom Concession", type: "percentage", value: Number(assignOfferPct || 0) };
+      else if (assignOfferType === "custom_flat") offerObj = { name: "Flat Discount", type: "flat", value: Number(assignOfferFlat || 0) };
+
       const payload = {
         studentId: values.studentId,
         academicYear: selectedYear,
-        feeStructureId: values.feeStructureId,
-        discount: Number(values.discount || 0),
+        feeStructureId: values.feeStructureId || undefined,
+        annualCharges: Number(assignAnnualCharges || 0),
+        monthlyTuition: Number(assignMonthlyTuition || 0),
+        tuitionMonths: Number(assignTuitionMonths || 12),
+        transportFee: assignTransportOpted ? Number(assignTransportAmount || 0) : 0,
+        transportDetails: {
+          opted: Boolean(assignTransportOpted),
+          route: assignTransportRoute || "",
+        },
+        extraFees: Number(assignExtraAmount || 0),
+        offer: offerObj,
+        remarks: values.remarks || "Configured in accounts",
       };
 
       const { data } = await api.post("/student-fees", payload);
@@ -170,12 +285,108 @@ export default function FeesPage() {
         message.success("Fee assigned to student successfully");
         setAssignModalOpen(false);
         assignForm.resetFields();
-        fetchStudentFees(selectedYear);
+        fetchStudentFees(selectedYear, statusFilter, selectedClassFilter, searchText);
       }
     } catch (err) {
       message.error(err.response?.data?.message || "Failed to assign fee");
     } finally {
       setSubmittingAssign(false);
+    }
+  };
+
+  // Open fee detail drawer
+  const handleOpenFeeDetails = async (fee) => {
+    setSelectedFeeDetail(fee);
+    setSelectedFeePayments([]);
+    setDetailDrawerOpen(true);
+    try {
+      setLoadingFeeDetail(true);
+      const { data } = await api.get(`/student-fees/${fee._id}`);
+      if (data.success) {
+        setSelectedFeeDetail(data.data.studentFee);
+        setSelectedFeePayments(data.data.payments || []);
+      }
+    } catch (e) {
+      console.error("Failed to load fee details:", e);
+    } finally {
+      setLoadingFeeDetail(false);
+    }
+  };
+
+  // Send single WhatsApp fee reminder
+  const handleSendReminder = async (feeId) => {
+    setRemindingId(feeId);
+    try {
+      const { data } = await api.post(`/student-fees/${feeId}/remind`, {});
+      if (data.success) {
+        message.success(data.message || "Fee reminder dispatched via WhatsApp!");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to send WhatsApp reminder");
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
+  // Bulk WhatsApp fee reminders
+  const handleBulkFeeReminders = async () => {
+    setBulkReminding(true);
+    try {
+      const payload = {
+        classId: selectedClassFilter !== "all" ? selectedClassFilter : undefined,
+      };
+      const { data } = await api.post("/whatsapp/fee-reminders", payload);
+      if (data.success) {
+        message.success(data.message || "Fee reminders dispatched to parents!");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to dispatch fee reminders");
+    } finally {
+      setBulkReminding(false);
+    }
+  };
+
+  // Open Edit Fee Modal
+  const handleOpenEditFee = (fee) => {
+    setEditingFee(fee);
+    editForm.resetFields();
+    editForm.setFieldsValue({
+      annualCharges: fee.annualCharges || 0,
+      monthlyTuition: fee.monthlyTuition || 0,
+      tuitionMonths: fee.tuitionMonths || 12,
+      transportFee: fee.transportFee || 0,
+      extraFees: fee.extraFees || 0,
+      discount: fee.discount || 0,
+      remarks: fee.remarks || "",
+    });
+    setEditModalOpen(true);
+  };
+
+  // Submit Update Fee
+  const handleUpdateFee = async (values) => {
+    if (!editingFee) return;
+    setEditSubmitting(true);
+    try {
+      const payload = {
+        annualCharges: Number(values.annualCharges || 0),
+        monthlyTuition: Number(values.monthlyTuition || 0),
+        tuitionMonths: Number(values.tuitionMonths || 12),
+        transportFee: Number(values.transportFee || 0),
+        extraFees: Number(values.extraFees || 0),
+        discount: Number(values.discount || 0),
+        remarks: values.remarks || "",
+      };
+
+      const { data } = await api.put(`/student-fees/${editingFee._id}`, payload);
+      if (data.success) {
+        message.success("Student fee updated successfully!");
+        setEditModalOpen(false);
+        fetchStudentFees(selectedYear, statusFilter, selectedClassFilter, searchText);
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to update student fee");
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -280,46 +491,75 @@ export default function FeesPage() {
           <Text type="secondary" style={{ fontSize: 11 }}>
             Roll: #{r.student?.rollNumber || "N/A"} | Adm: {r.student?.admissionNumber || "N/A"}
           </Text>
-        </div>
-      ),
-    },
-    {
-      title: "Fee Structure",
-      key: "feeStructure",
-      render: (_, r) => (
-        <div>
-          <Text>{r.feeStructure?.name || "General Fee"}</Text>
           <br />
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {r.feeStructure?.components?.length || 0} Components
-          </Text>
+          <Tag color="blue" style={{ fontSize: 10, padding: "0 4px", marginTop: 2 }}>
+            {r.student?.class?.name || "Class"} {r.student?.section?.name ? `(${r.student.section.name})` : ""}
+          </Tag>
         </div>
       ),
     },
     {
-      title: "Total Fee",
+      title: "Fee Breakdown",
+      key: "breakdown",
+      render: (_, r) => (
+        <div style={{ fontSize: 12 }}>
+          {r.annualCharges > 0 && <div>Annual: ₹{r.annualCharges.toLocaleString()}</div>}
+          {r.monthlyTuition > 0 && (
+            <div>Tuition: ₹{r.monthlyTuition.toLocaleString()}/mo × {r.tuitionMonths || 12}m</div>
+          )}
+          {r.transportFee > 0 && (
+            <div>
+              <Tag color="cyan" style={{ fontSize: 10 }}>
+                Bus: ₹{r.transportFee.toLocaleString()}
+              </Tag>
+            </div>
+          )}
+          {r.extraFees > 0 && (
+            <div>
+              <Tag color="purple" style={{ fontSize: 10 }}>
+                Extra: ₹{r.extraFees.toLocaleString()}
+              </Tag>
+            </div>
+          )}
+          {!r.annualCharges && !r.monthlyTuition && !r.transportFee && !r.extraFees && (
+            <Text type="secondary">{r.feeStructure?.name || "Standard Fee"}</Text>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: "Gross Total",
       dataIndex: "totalAmount",
       key: "totalAmount",
       render: (amt) => `₹${(amt || 0).toLocaleString()}`,
     },
     {
-      title: "Discount",
-      dataIndex: "discount",
+      title: "Offer / Discount",
       key: "discount",
-      render: (disc) => (disc > 0 ? <Tag color="green">-₹{disc.toLocaleString()}</Tag> : "—"),
+      render: (_, r) =>
+        r.discount > 0 ? (
+          <div>
+            <Tag color="green">-₹{r.discount.toLocaleString()}</Tag>
+            {r.offer?.name && (
+              <div style={{ fontSize: 10, color: "#166534" }}>{r.offer.name}</div>
+            )}
+          </div>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     },
     {
-      title: "Payable",
+      title: "Net Payable",
       dataIndex: "payableAmount",
       key: "payableAmount",
-      render: (p) => <Text strong>₹{(p || 0).toLocaleString()}</Text>,
+      render: (p) => <Text strong style={{ color: "#1e3a8a" }}>₹{(p || 0).toLocaleString()}</Text>,
     },
     {
       title: "Paid",
       dataIndex: "paidAmount",
       key: "paidAmount",
       render: (pd) => (
-        <Text style={{ color: "#52c41a", fontWeight: 600 }}>
+        <Text style={{ color: "#15803d", fontWeight: 600 }}>
           ₹{(pd || 0).toLocaleString()}
         </Text>
       ),
@@ -329,7 +569,7 @@ export default function FeesPage() {
       dataIndex: "dueAmount",
       key: "dueAmount",
       render: (due) => (
-        <Text style={{ color: due > 0 ? "#ff4d4f" : "#52c41a", fontWeight: 700 }}>
+        <Text style={{ color: due > 0 ? "#b91c1c" : "#15803d", fontWeight: 700 }}>
           ₹{(due || 0).toLocaleString()}
         </Text>
       ),
@@ -347,16 +587,45 @@ export default function FeesPage() {
       title: "Actions",
       key: "actions",
       render: (_, r) => (
-        <Space>
+        <Space wrap size={4}>
           <Button
             type="primary"
             size="small"
             icon={<CreditCardOutlined />}
             disabled={r.status === "paid"}
             onClick={() => handleOpenPaymentModal(r)}
+            style={{ background: r.status === "paid" ? undefined : "#10b981", borderColor: "#10b981" }}
           >
             Collect
           </Button>
+
+          <Tooltip title="View Detailed Breakdown & Receipts">
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleOpenFeeDetails(r)}
+            />
+          </Tooltip>
+
+          {r.dueAmount > 0 && (
+            <Tooltip title="Send WhatsApp Fee Reminder to Parent">
+              <Button
+                size="small"
+                icon={<WhatsAppOutlined />}
+                loading={remindingId === r._id}
+                onClick={() => handleSendReminder(r._id)}
+                style={{ color: "#25D366", borderColor: "#25D366" }}
+              />
+            </Tooltip>
+          )}
+
+          <Tooltip title="Edit / Adjust Fee Components">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleOpenEditFee(r)}
+            />
+          </Tooltip>
         </Space>
       ),
     },
@@ -530,19 +799,63 @@ export default function FeesPage() {
               </Select>
 
               {activeTab === "studentFees" && (
-                <Select
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                  style={{ width: 140 }}
-                >
-                  <Option value="all">All Statuses</Option>
-                  <Option value="pending">Pending Only</Option>
-                  <Option value="partial">Partial Dues</Option>
-                  <Option value="paid">Fully Paid</Option>
-                </Select>
+                <>
+                  <Select
+                    value={selectedClassFilter}
+                    onChange={(c) => {
+                      setSelectedClassFilter(c);
+                      fetchStudentFees(selectedYear, statusFilter, c, searchText);
+                    }}
+                    style={{ width: 140 }}
+                  >
+                    <Option value="all">All Classes</Option>
+                    {classes.map((c) => (
+                      <Option key={c._id} value={c._id}>
+                        {c.name}
+                      </Option>
+                    ))}
+                  </Select>
+
+                  <Input
+                    prefix={<SearchOutlined />}
+                    placeholder="Search student or roll..."
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        fetchStudentFees(selectedYear, statusFilter, selectedClassFilter, searchText);
+                      }
+                    }}
+                    allowClear
+                    style={{ width: 200 }}
+                  />
+
+                  <Select
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    style={{ width: 130 }}
+                  >
+                    <Option value="all">All Statuses</Option>
+                    <Option value="pending">Pending Only</Option>
+                    <Option value="partial">Partial Dues</Option>
+                    <Option value="paid">Fully Paid</Option>
+                  </Select>
+
+                  <Button
+                    icon={<WhatsAppOutlined />}
+                    onClick={handleBulkFeeReminders}
+                    loading={bulkReminding}
+                    style={{ color: "#059669", borderColor: "#10b981", fontWeight: 600 }}
+                  >
+                    Reminders
+                  </Button>
+                </>
               )}
 
-              <Button icon={<ReloadOutlined />} onClick={() => fetchStudentFees(selectedYear)}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => fetchStudentFees(selectedYear, statusFilter, selectedClassFilter, searchText)}
+              >
                 Refresh
               </Button>
 
@@ -552,9 +865,20 @@ export default function FeesPage() {
                   icon={<PlusOutlined />}
                   onClick={() => {
                     assignForm.resetFields();
+                    setAssignAnnualCharges(5000);
+                    setAssignMonthlyTuition(1500);
+                    setAssignTuitionMonths(12);
+                    setAssignTransportOpted(false);
+                    setAssignTransportAmount(0);
+                    setAssignTransportRoute("");
+                    setAssignExtraAmount(0);
+                    setAssignOfferType("none");
+                    setAssignOfferPct(0);
+                    setAssignOfferFlat(0);
                     setAssignModalOpen(true);
                   }}
-                  disabled={!selectedYear || feeStructures.length === 0}
+                  disabled={!selectedYear}
+                  style={{ background: "#1677ff" }}
                 >
                   Assign Fee to Student
                 </Button>
@@ -771,52 +1095,502 @@ export default function FeesPage() {
         )}
       </Modal>
 
-      {/* Assign Fee Modal */}
+      {/* Enhanced Assign Fee Modal */}
       <Modal
-        title="Assign Fee Structure to Student"
+        title="Assign & Customize Fee Structure for Student"
         open={assignModalOpen}
         onCancel={() => setAssignModalOpen(false)}
         footer={null}
+        width={780}
         destroyOnClose
       >
         <Form form={assignForm} layout="vertical" onFinish={handleAssignFee} style={{ marginTop: 16 }}>
-          <Form.Item
-            name="studentId"
-            label="Select Student"
-            rules={[{ required: true, message: "Select student" }]}
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="studentId"
+                label="Select Student"
+                rules={[{ required: true, message: "Select student" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Search student by name or admission no"
+                  optionFilterProp="children"
+                >
+                  {students.map((st) => (
+                    <Option key={st._id} value={st._id}>
+                      {st.firstName} {st.lastName || ""} ({st.admissionNumber}) - Class: {st.class?.name || "N/A"}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="feeStructureId" label="Fee Structure Template (Optional)">
+                <Select
+                  placeholder="Select Class Template to Pre-fill"
+                  allowClear
+                  onChange={(val) => {
+                    const struct = feeStructures.find((f) => f._id === val);
+                    if (struct) {
+                      const sum = struct.components?.reduce((s, c) => s + (c.amount || 0), 0) || 0;
+                      if (sum > 0) setAssignMonthlyTuition(Math.round(sum / 12));
+                    }
+                  }}
+                >
+                  {feeStructures.map((fs) => (
+                    <Option key={fs._id} value={fs._id}>
+                      {fs.name} ({fs.class?.name || "Class"})
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={8}>
+              <Form.Item label="Annual & Admission Charges (₹)">
+                <InputNumber
+                  min={0}
+                  style={{ width: "100%" }}
+                  value={assignAnnualCharges}
+                  onChange={(v) => setAssignAnnualCharges(v || 0)}
+                  prefix="₹"
+                  placeholder="5000"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item label="Monthly Tuition Fee (₹)">
+                <InputNumber
+                  min={0}
+                  style={{ width: "100%" }}
+                  value={assignMonthlyTuition}
+                  onChange={(v) => setAssignMonthlyTuition(v || 0)}
+                  prefix="₹"
+                  placeholder="1500"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item label="Tuition Months">
+                <Select
+                  value={assignTuitionMonths}
+                  onChange={setAssignTuitionMonths}
+                  style={{ width: "100%" }}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                    <Option key={m} value={m}>
+                      {m} {m === 1 ? "Month" : "Months"} (₹{((assignMonthlyTuition || 0) * m).toLocaleString()})
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* Transport Section */}
+          <div style={{ padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, marginBottom: 16 }}>
+            <Checkbox
+              checked={assignTransportOpted}
+              onChange={(e) => setAssignTransportOpted(e.target.checked)}
+              style={{ fontWeight: 600, color: "#166534" }}
+            >
+              <CarOutlined style={{ marginRight: 6 }} />
+              Student Opts for School Bus / Transport
+            </Checkbox>
+
+            {assignTransportOpted && (
+              <Row gutter={16} style={{ marginTop: 10 }}>
+                <Col xs={24} sm={14}>
+                  <Input
+                    placeholder="Bus Route / Stop (e.g. Route 4 - Civil Lines)"
+                    value={assignTransportRoute}
+                    onChange={(e) => setAssignTransportRoute(e.target.value)}
+                  />
+                </Col>
+                <Col xs={24} sm={10}>
+                  <InputNumber
+                    min={0}
+                    style={{ width: "100%" }}
+                    prefix="₹"
+                    placeholder="Transport Fee"
+                    value={assignTransportAmount}
+                    onChange={(v) => setAssignTransportAmount(v || 0)}
+                  />
+                </Col>
+              </Row>
+            )}
+          </div>
+
+          {/* Extra Charges & Offer */}
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Extra / Activity Charges (₹)">
+                <InputNumber
+                  min={0}
+                  style={{ width: "100%" }}
+                  value={assignExtraAmount}
+                  onChange={(v) => setAssignExtraAmount(v || 0)}
+                  prefix="₹"
+                  placeholder="e.g. 1000"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Scholarship / Offer Scheme">
+                <Select value={assignOfferType} onChange={setAssignOfferType}>
+                  <Option value="none">No Concession</Option>
+                  <Option value="sibling">Sibling Concession (10% Off)</Option>
+                  <Option value="merit">Academic Merit Scholarship (20% Off)</Option>
+                  <Option value="staff">Staff Ward Discount (50% Off)</Option>
+                  <Option value="girl">Girl Child Concession (15% Off)</Option>
+                  <Option value="mgmt">Special Management Offer (25% Off)</Option>
+                  <Option value="custom_pct">Custom Percentage (%)</Option>
+                  <Option value="custom_flat">Custom Flat Amount (₹)</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {assignOfferType === "custom_pct" && (
+            <Form.Item label="Custom Discount Percentage (%)">
+              <InputNumber
+                min={1}
+                max={100}
+                style={{ width: "100%" }}
+                value={assignOfferPct}
+                onChange={(v) => setAssignOfferPct(v || 0)}
+                placeholder="10"
+              />
+            </Form.Item>
+          )}
+
+          {assignOfferType === "custom_flat" && (
+            <Form.Item label="Custom Flat Discount (₹)">
+              <InputNumber
+                min={1}
+                style={{ width: "100%" }}
+                prefix="₹"
+                value={assignOfferFlat}
+                onChange={(v) => setAssignOfferFlat(v || 0)}
+                placeholder="2000"
+              />
+            </Form.Item>
+          )}
+
+          <Form.Item name="remarks" label="Account Remarks">
+            <Input placeholder="Optional notes regarding this fee allocation..." />
+          </Form.Item>
+
+          {/* Real-time Calculation Summary */}
+          <Card
+            size="small"
+            style={{
+              borderRadius: 8,
+              background: "#ecfdf5",
+              border: "1px solid #a7f3d0",
+              marginBottom: 16,
+            }}
           >
-            <Select showSearch placeholder="Search student by name or admission no" optionFilterProp="children">
-              {students.map((st) => (
-                <Option key={st._id} value={st._id}>
-                  {st.firstName} {st.lastName || ""} ({st.admissionNumber}) - Class: {st.class?.name || "N/A"}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
+            <Row gutter={12} align="middle">
+              <Col xs={24} sm={14}>
+                <Space direction="vertical" size={2} style={{ display: "flex" }}>
+                  <Text style={{ fontSize: 12 }}>
+                    Annual: <b>₹{assignFeeSummary.annual.toLocaleString()}</b> + Tuition: <b>₹{assignFeeSummary.tuition.toLocaleString()}</b>
+                    {assignFeeSummary.transport > 0 && ` + Transport: ₹${assignFeeSummary.transport.toLocaleString()}`}
+                    {assignFeeSummary.extra > 0 && ` + Extra: ₹${assignFeeSummary.extra.toLocaleString()}`}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Gross Total: <b>₹{assignFeeSummary.gross.toLocaleString()}</b>
+                    {assignFeeSummary.discount > 0 && (
+                      <span style={{ color: "#059669", marginLeft: 8 }}>
+                        • Discount ({assignFeeSummary.offerLabel}): <b>-₹{assignFeeSummary.discount.toLocaleString()}</b>
+                      </span>
+                    )}
+                  </Text>
+                </Space>
+              </Col>
+              <Col xs={24} sm={10} style={{ textAlign: "right" }}>
+                <Text style={{ fontSize: 11, color: "#047857", textTransform: "uppercase", fontWeight: 700, display: "block" }}>
+                  Net Payable Fee
+                </Text>
+                <span style={{ fontSize: 22, fontWeight: 800, color: "#065f46" }}>
+                  ₹{assignFeeSummary.net.toLocaleString()}
+                </span>
+              </Col>
+            </Row>
+          </Card>
 
-          <Form.Item
-            name="feeStructureId"
-            label="Fee Structure Template"
-            rules={[{ required: true, message: "Select fee structure" }]}
-          >
-            <Select placeholder="Select Fee Structure">
-              {feeStructures.map((fs) => (
-                <Option key={fs._id} value={fs._id}>
-                  {fs.name} ({fs.class?.name || "Class"})
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item name="discount" label="Scholarship / Fee Concession Discount (₹)">
-            <InputNumber min={0} style={{ width: "100%" }} placeholder="0" />
-          </Form.Item>
-
-          <div style={{ textAlign: "right", marginTop: 24 }}>
+          <div style={{ textAlign: "right", marginTop: 20 }}>
             <Space>
               <Button onClick={() => setAssignModalOpen(false)}>Cancel</Button>
               <Button type="primary" htmlType="submit" loading={submittingAssign}>
-                Assign Fee
+                Assign & Initialize Fee
+              </Button>
+            </Space>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* Student Fee Breakdown & Payment Ledger Drawer */}
+      <Drawer
+        title={
+          selectedFeeDetail ? (
+            <div>
+              <Text strong style={{ fontSize: 16 }}>
+                Fee Ledger: {selectedFeeDetail.student?.firstName} {selectedFeeDetail.student?.lastName || ""}
+              </Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Adm: {selectedFeeDetail.student?.admissionNumber} | Roll #{selectedFeeDetail.student?.rollNumber}
+              </Text>
+            </div>
+          ) : (
+            "Student Fee Ledger"
+          )
+        }
+        placement="right"
+        width={560}
+        onClose={() => setDetailDrawerOpen(false)}
+        open={detailDrawerOpen}
+      >
+        {selectedFeeDetail && (
+          <div>
+            {/* Top Financial Summary */}
+            <Card
+              size="small"
+              style={{
+                borderRadius: 8,
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                marginBottom: 16,
+              }}
+            >
+              <Row gutter={12}>
+                <Col span={8}>
+                  <Statistic
+                    title={<span style={{ fontSize: 11 }}>Payable Amount</span>}
+                    value={`₹${(selectedFeeDetail.payableAmount || 0).toLocaleString()}`}
+                    valueStyle={{ fontSize: 16, fontWeight: 700, color: "#c2410c" }}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title={<span style={{ fontSize: 11 }}>Paid Amount</span>}
+                    value={`₹${(selectedFeeDetail.paidAmount || 0).toLocaleString()}`}
+                    valueStyle={{ fontSize: 16, fontWeight: 700, color: "#15803d" }}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title={<span style={{ fontSize: 11 }}>Due Balance</span>}
+                    value={`₹${(selectedFeeDetail.dueAmount || 0).toLocaleString()}`}
+                    valueStyle={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: selectedFeeDetail.dueAmount > 0 ? "#b91c1c" : "#15803d",
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+
+            <Title level={5}>Fee Structure Breakdown</Title>
+            <Descriptions bordered size="small" column={1} style={{ marginBottom: 20 }}>
+              <Descriptions.Item label="Academic Session">
+                {selectedFeeDetail.academicYear?.name || "Current Session"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Payment Status">
+                <Tag
+                  color={
+                    selectedFeeDetail.status === "paid"
+                      ? "green"
+                      : selectedFeeDetail.status === "partial"
+                      ? "orange"
+                      : "red"
+                  }
+                >
+                  {(selectedFeeDetail.status || "PENDING").toUpperCase()}
+                </Tag>
+              </Descriptions.Item>
+              {selectedFeeDetail.annualCharges > 0 && (
+                <Descriptions.Item label="Annual & Dev Charges">
+                  ₹{selectedFeeDetail.annualCharges.toLocaleString()}
+                </Descriptions.Item>
+              )}
+              {selectedFeeDetail.monthlyTuition > 0 && (
+                <Descriptions.Item label="Monthly Tuition">
+                  ₹{selectedFeeDetail.monthlyTuition.toLocaleString()}/mo ×{" "}
+                  {selectedFeeDetail.tuitionMonths || 12} mos = ₹
+                  {(
+                    (selectedFeeDetail.monthlyTuition || 0) *
+                    (selectedFeeDetail.tuitionMonths || 12)
+                  ).toLocaleString()}
+                </Descriptions.Item>
+              )}
+              {selectedFeeDetail.transportFee > 0 && (
+                <Descriptions.Item label="Transport / Bus Fee">
+                  ₹{selectedFeeDetail.transportFee.toLocaleString()}{" "}
+                  {selectedFeeDetail.transportDetails?.route &&
+                    `(${selectedFeeDetail.transportDetails.route})`}
+                </Descriptions.Item>
+              )}
+              {selectedFeeDetail.extraFees > 0 && (
+                <Descriptions.Item label="Extra / Activity Charges">
+                  ₹{selectedFeeDetail.extraFees.toLocaleString()}
+                </Descriptions.Item>
+              )}
+              {selectedFeeDetail.discount > 0 && (
+                <Descriptions.Item label="Applied Scholarship / Concession">
+                  <Tag color="green">
+                    {selectedFeeDetail.offer?.name || "Discount"}: -₹
+                    {selectedFeeDetail.discount.toLocaleString()}
+                  </Tag>
+                </Descriptions.Item>
+              )}
+              {selectedFeeDetail.remarks && (
+                <Descriptions.Item label="Remarks">
+                  {selectedFeeDetail.remarks}
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+
+            {/* Payment Receipts History */}
+            <Title level={5}>Payment Collection History ({selectedFeePayments.length})</Title>
+            {selectedFeePayments.length > 0 ? (
+              <Table
+                size="small"
+                dataSource={selectedFeePayments}
+                rowKey="_id"
+                pagination={false}
+                columns={[
+                  {
+                    title: "Receipt",
+                    dataIndex: "receiptNumber",
+                    key: "receiptNumber",
+                    render: (r) => <Tag color="geekblue">{r}</Tag>,
+                  },
+                  {
+                    title: "Amount",
+                    dataIndex: "amount",
+                    key: "amount",
+                    render: (amt) => <Text strong style={{ color: "#15803d" }}>₹{amt.toLocaleString()}</Text>,
+                  },
+                  {
+                    title: "Mode",
+                    dataIndex: "paymentMethod",
+                    key: "paymentMethod",
+                    render: (m) => <Tag color="cyan">{m?.toUpperCase()}</Tag>,
+                  },
+                  {
+                    title: "Date",
+                    dataIndex: "paymentDate",
+                    key: "paymentDate",
+                    render: (d) => dayjs(d).format("DD MMM YYYY"),
+                  },
+                  {
+                    title: "Action",
+                    key: "action",
+                    render: (_, p) => (
+                      <Button
+                        size="small"
+                        icon={<PrinterOutlined />}
+                        onClick={() => {
+                          setCurrentReceipt(p);
+                          setReceiptModalOpen(true);
+                        }}
+                      >
+                        Print
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <Text type="secondary">No payments collected yet for this fee structure.</Text>
+            )}
+
+            <div style={{ marginTop: 24, textAlign: "right" }}>
+              <Space>
+                {selectedFeeDetail.dueAmount > 0 && (
+                  <Button
+                    type="primary"
+                    icon={<CreditCardOutlined />}
+                    onClick={() => {
+                      setDetailDrawerOpen(false);
+                      handleOpenPaymentModal(selectedFeeDetail);
+                    }}
+                    style={{ background: "#10b981", borderColor: "#10b981" }}
+                  >
+                    Collect Payment Now
+                  </Button>
+                )}
+                <Button onClick={() => setDetailDrawerOpen(false)}>Close</Button>
+              </Space>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      {/* Edit Student Fee Modal */}
+      <Modal
+        title={`Adjust Student Fee — ${editingFee?.student?.firstName || "Student"}`}
+        open={editModalOpen}
+        onCancel={() => setEditModalOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" onFinish={handleUpdateFee} style={{ marginTop: 16 }}>
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="annualCharges" label="Annual Charges (₹)">
+                <InputNumber min={0} style={{ width: "100%" }} prefix="₹" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="monthlyTuition" label="Monthly Tuition (₹)">
+                <InputNumber min={0} style={{ width: "100%" }} prefix="₹" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="tuitionMonths" label="Tuition Months">
+                <InputNumber min={1} max={12} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="transportFee" label="Transport Fee (₹)">
+                <InputNumber min={0} style={{ width: "100%" }} prefix="₹" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="extraFees" label="Extra / Activity Charges (₹)">
+                <InputNumber min={0} style={{ width: "100%" }} prefix="₹" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="discount" label="Concession / Discount (₹)">
+                <InputNumber min={0} style={{ width: "100%" }} prefix="₹" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="remarks" label="Adjustment Reason / Remarks">
+            <Input placeholder="Reason for adjusting fee breakdown..." />
+          </Form.Item>
+
+          <div style={{ textAlign: "right", marginTop: 20 }}>
+            <Space>
+              <Button onClick={() => setEditModalOpen(false)}>Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={editSubmitting}>
+                Save Adjustment
               </Button>
             </Space>
           </div>

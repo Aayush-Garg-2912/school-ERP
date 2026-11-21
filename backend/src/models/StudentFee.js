@@ -1,5 +1,31 @@
 const mongoose = require("mongoose");
 
+const feeComponentSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    frequency: {
+      type: String,
+      enum: ["one_time", "monthly", "quarterly", "half_yearly", "yearly"],
+      default: "yearly",
+    },
+    category: {
+      type: String,
+      enum: ["annual", "tuition", "transport", "extra", "other"],
+      default: "other",
+    },
+  },
+  { _id: false }
+);
+
 const studentFeeSchema = new mongoose.Schema(
   {
     school: {
@@ -23,7 +49,60 @@ const studentFeeSchema = new mongoose.Schema(
     feeStructure: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "FeeStructure",
-      required: true,
+      required: false,
+    },
+
+    // Itemized components breakdown
+    components: [feeComponentSchema],
+
+    // Specific fee categories breakdown for transparent management
+    annualCharges: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    monthlyTuition: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    tuitionMonths: {
+      type: Number,
+      default: 12,
+      min: 1,
+      max: 12,
+    },
+
+    transportFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    transportDetails: {
+      opted: { type: Boolean, default: false },
+      route: { type: String, default: "", trim: true },
+      pickupPoint: { type: String, default: "", trim: true },
+    },
+
+    extraFees: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Concession / Scholarship / Offer details
+    offer: {
+      name: { type: String, default: "", trim: true },
+      type: {
+        type: String,
+        enum: ["percentage", "flat", "none"],
+        default: "none",
+      },
+      value: { type: Number, default: 0, min: 0 },
+      discountAmount: { type: Number, default: 0, min: 0 },
     },
 
     totalAmount: {
@@ -58,13 +137,14 @@ const studentFeeSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: [
-        "pending",
-        "partial",
-        "paid",
-        "overdue",
-      ],
+      enum: ["pending", "partial", "paid", "overdue"],
       default: "pending",
+    },
+
+    remarks: {
+      type: String,
+      default: "",
+      trim: true,
     },
   },
   {
@@ -78,7 +158,10 @@ studentFeeSchema.index({
   academicYear: 1,
 });
 
-module.exports = mongoose.model(
-  "StudentFee",
-  studentFeeSchema
-);
+studentFeeSchema.index({
+  school: 1,
+  academicYear: 1,
+  status: 1,
+});
+
+module.exports = mongoose.model("StudentFee", studentFeeSchema);

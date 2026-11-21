@@ -394,8 +394,13 @@ class WhatsAppService {
       dueAmount: { $gte: Number(minDueAmount) },
     };
 
-    if (classId) query.class = classId;
-    if (sectionId) query.section = sectionId;
+    if (classId || sectionId) {
+      const studentFilter = { school: schoolId };
+      if (classId) studentFilter.class = classId;
+      if (sectionId) studentFilter.section = sectionId;
+      const classStudents = await Student.find(studentFilter).select("_id");
+      query.student = { $in: classStudents.map((s) => s._id) };
+    }
 
     const fees = await StudentFee.find(query)
       .populate({

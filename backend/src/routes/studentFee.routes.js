@@ -6,6 +6,7 @@ const {
   getStudentFeeById,
   updateStudentFee,
   deleteStudentFee,
+  sendSingleFeeReminder,
 } = require("../controllers/studentFee.controller");
 
 const { protect } = require("../middleware/auth.middleware");
@@ -49,6 +50,13 @@ router.delete(
   protect,
   allowPermissions("studentFee:delete"),
   deleteStudentFee
+);
+
+router.post(
+  "/:id/remind",
+  protect,
+  allowPermissions("whatsapp:send", "studentFee:view", "fee:view"),
+  sendSingleFeeReminder
 );
 
 module.exports = router;

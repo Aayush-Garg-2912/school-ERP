@@ -6,6 +6,7 @@ const {
   getStudentById,
   updateStudent,
   deleteStudent,
+  promoteStudents,
 } = require("../controllers/student.controller");
 
 const { protect } = require("../middleware/auth.middleware");
@@ -21,6 +22,13 @@ router.post(
   protect,
   allowPermissions("student:create"),
   createStudent
+);
+
+router.post(
+  "/promote",
+  protect,
+  allowPermissions("student:update"),
+  promoteStudents
 );
 
 router.get(
