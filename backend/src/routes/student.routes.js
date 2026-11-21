@@ -7,6 +7,8 @@ const {
   updateStudent,
   deleteStudent,
   promoteStudents,
+  getNextAdmissionNumber,
+  getNextRollNumber,
 } = require("../controllers/student.controller");
 
 const { protect } = require("../middleware/auth.middleware");
@@ -36,6 +38,20 @@ router.get(
   protect,
   allowPermissions("student:view"),
   getStudents
+);
+
+router.get(
+  "/next-admission-number",
+  protect,
+  allowPermissions("student:view"),
+  getNextAdmissionNumber
+);
+
+router.get(
+  "/next-roll-number",
+  protect,
+  allowPermissions("student:view"),
+  getNextRollNumber
 );
 
 router.get(

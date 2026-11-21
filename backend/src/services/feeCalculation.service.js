@@ -22,8 +22,16 @@ function calculateStudentFeeDetails({
   discount = 0,
   remarks = "",
 }) {
-  let finalComponents = [];
+  const parsedAnnual = Number(annualCharges) || 0;
+  const parsedMonthly = Number(monthlyTuition) || 0;
+  const parsedMonths = Math.max(1, Math.min(12, Number(tuitionMonths) || 12));
+  const parsedTransport = Number(transportFee) || 0;
+  const parsedExtra = Number(extraFees) || 0;
 
+  let finalComponents = [];
+  const hasCustomCore = parsedAnnual > 0 || parsedMonthly > 0;
+
+  // CASE 1: Explicit components array passed directly
   if (Array.isArray(components) && components.length > 0) {
     finalComponents = components.map((c) => ({
       name: (c.name || "Fee Component").trim(),
@@ -31,61 +39,101 @@ function calculateStudentFeeDetails({
       frequency: c.frequency || "yearly",
       category: c.category || "other",
     }));
-  } else if (feeStructure?.components?.length) {
+  }
+  // CASE 2: User configured custom Annual Charges or Monthly Tuition Fee
+  // In this case, use strictly the user's custom numbers — DO NOT add template fee on top!
+  else if (hasCustomCore) {
+    if (parsedAnnual > 0) {
+      finalComponents.push({
+        name: "Annual & Admission Charges",
+        amount: parsedAnnual,
+        frequency: "yearly",
+        category: "annual",
+      });
+    }
+
+    if (parsedMonthly > 0) {
+      finalComponents.push({
+        name: `Monthly Tuition Fee (₹${parsedMonthly}/mo × ${parsedMonths} mos)`,
+        amount: parsedMonthly * parsedMonths,
+        frequency: "monthly",
+        category: "tuition",
+      });
+    }
+
+    if (parsedTransport > 0) {
+      finalComponents.push({
+        name: transportDetails?.route
+          ? `Transport Fee (${transportDetails.route})`
+          : "Transport Fee",
+        amount: parsedTransport,
+        frequency: "yearly",
+        category: "transport",
+      });
+    }
+
+    if (parsedExtra > 0) {
+      finalComponents.push({
+        name: "Extra / Activity Charges",
+        amount: parsedExtra,
+        frequency: "yearly",
+        category: "extra",
+      });
+    }
+  }
+  // CASE 3: No custom Annual/Tuition was entered, use FeeStructure template as baseline
+  else if (feeStructure?.components?.length) {
     finalComponents = feeStructure.components.map((c) => ({
       name: c.name,
       amount: Number(c.amount) || 0,
       frequency: c.frequency || "yearly",
       category: "tuition",
     }));
+
+    if (parsedTransport > 0) {
+      finalComponents.push({
+        name: transportDetails?.route
+          ? `Transport Fee (${transportDetails.route})`
+          : "Transport Fee",
+        amount: parsedTransport,
+        frequency: "yearly",
+        category: "transport",
+      });
+    }
+
+    if (parsedExtra > 0) {
+      finalComponents.push({
+        name: "Extra / Activity Charges",
+        amount: parsedExtra,
+        frequency: "yearly",
+        category: "extra",
+      });
+    }
+  }
+  // CASE 4: Only Transport or Extra was specified
+  else {
+    if (parsedTransport > 0) {
+      finalComponents.push({
+        name: transportDetails?.route
+          ? `Transport Fee (${transportDetails.route})`
+          : "Transport Fee",
+        amount: parsedTransport,
+        frequency: "yearly",
+        category: "transport",
+      });
+    }
+
+    if (parsedExtra > 0) {
+      finalComponents.push({
+        name: "Extra / Activity Charges",
+        amount: parsedExtra,
+        frequency: "yearly",
+        category: "extra",
+      });
+    }
   }
 
-  const parsedAnnual = Number(annualCharges) || 0;
-  const parsedMonthly = Number(monthlyTuition) || 0;
-  const parsedMonths = Math.max(1, Math.min(12, Number(tuitionMonths) || 12));
-  const parsedTransport = Number(transportFee) || 0;
-  const parsedExtra = Number(extraFees) || 0;
-
-  // Add individual categories to components if not already represented
-  if (parsedAnnual > 0 && !finalComponents.some((c) => c.category === "annual")) {
-    finalComponents.push({
-      name: "Annual & Development Charges",
-      amount: parsedAnnual,
-      frequency: "yearly",
-      category: "annual",
-    });
-  }
-
-  if (parsedMonthly > 0 && !finalComponents.some((c) => c.category === "tuition")) {
-    finalComponents.push({
-      name: `Monthly Tuition Fee (₹${parsedMonthly}/mo × ${parsedMonths} mos)`,
-      amount: parsedMonthly * parsedMonths,
-      frequency: "monthly",
-      category: "tuition",
-    });
-  }
-
-  if (parsedTransport > 0 && !finalComponents.some((c) => c.category === "transport")) {
-    finalComponents.push({
-      name: transportDetails?.route
-        ? `Transport Fee (${transportDetails.route})`
-        : "Transport Fee",
-      amount: parsedTransport,
-      frequency: "yearly",
-      category: "transport",
-    });
-  }
-
-  if (parsedExtra > 0 && !finalComponents.some((c) => c.category === "extra")) {
-    finalComponents.push({
-      name: "Extra / Activity Charges",
-      amount: parsedExtra,
-      frequency: "yearly",
-      category: "extra",
-    });
-  }
-
-  // Calculate gross total
+  // Calculate gross total strictly from finalComponents
   let totalAmount = finalComponents.reduce(
     (sum, c) => sum + (Number(c.amount) || 0),
     0

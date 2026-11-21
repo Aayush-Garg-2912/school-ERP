@@ -12,9 +12,154 @@ const FeeStructure = require("../models/FeeStructure");
 const { calculateStudentFeeDetails } = require("../services/feeCalculation.service");
 
 const tempPassword = () => crypto.randomBytes(5).toString("base64url");
+
+/**
+ * Helper to generate the next unique admission number for a school
+ */
+const getNextAdmissionNumberInternal = async (schoolId) => {
+  const year = new Date().getFullYear();
+  const students = await Student.find({ school: schoolId })
+    .select("admissionNumber")
+    .sort({ createdAt: -1 })
+    .limit(200);
+
+  let prefix = "GIS";
+  let maxSeq = 0;
+  let padLength = 4;
+
+  for (const s of students) {
+    if (s.admissionNumber) {
+      const parts = s.admissionNumber.split("-");
+      if (parts.length >= 2) {
+        if (!prefix || prefix === "ADM" || prefix === "GIS") {
+          prefix = parts[0];
+        }
+        const lastPart = parts[parts.length - 1];
+        const num = parseInt(lastPart, 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+          padLength = Math.max(lastPart.length, 2);
+        }
+      } else {
+        const numMatch = s.admissionNumber.match(/(\d+)$/);
+        if (numMatch) {
+          const num = parseInt(numMatch[1], 10);
+          if (num > maxSeq) {
+            maxSeq = num;
+            padLength = Math.max(numMatch[1].length, 2);
+          }
+        }
+      }
+    }
+  }
+
+  if (maxSeq === 0) {
+    const count = await Student.countDocuments({ school: schoolId });
+    maxSeq = count;
+  }
+
+  let nextSeq = maxSeq + 1;
+  let candidate = `${prefix}-${year}-${String(nextSeq).padStart(padLength, "0")}`;
+
+  while (await Student.findOne({ school: schoolId, admissionNumber: candidate })) {
+    nextSeq++;
+    candidate = `${prefix}-${year}-${String(nextSeq).padStart(padLength, "0")}`;
+  }
+
+  return candidate;
+};
+
+/**
+ * Helper to determine the next available roll number in a section
+ */
+const getNextRollNumberInternal = async (schoolId, academicYear, classId, sectionId) => {
+  const query = {
+    school: schoolId,
+    class: classId,
+    section: sectionId,
+  };
+  if (academicYear) query.academicYear = academicYear;
+
+  const lastStudent = await Student.findOne(query).sort({ rollNumber: -1 });
+  let candidateRoll = lastStudent?.rollNumber ? lastStudent.rollNumber + 1 : 1;
+
+  while (
+    await Student.findOne({
+      school: schoolId,
+      class: classId,
+      section: sectionId,
+      ...(academicYear ? { academicYear } : {}),
+      rollNumber: candidateRoll,
+    })
+  ) {
+    candidateRoll++;
+  }
+
+  return candidateRoll;
+};
+
+/**
+ * API: Get Next Admission Number
+ */
+const getNextAdmissionNumber = async (req, res) => {
+  try {
+    const rawSchoolId = req.user.school?._id || req.user.school;
+    const nextAdmissionNumber = await getNextAdmissionNumberInternal(rawSchoolId);
+    return res.json({
+      success: true,
+      data: {
+        nextAdmissionNumber,
+      },
+    });
+  } catch (error) {
+    console.error("Get Next Admission Number Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate admission number",
+    });
+  }
+};
+
+/**
+ * API: Get Next Roll Number for Class & Section
+ */
+const getNextRollNumber = async (req, res) => {
+  try {
+    const rawSchoolId = req.user.school?._id || req.user.school;
+    const { classId, sectionId, academicYear } = req.query;
+
+    if (!classId || !sectionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Class and section are required",
+      });
+    }
+
+    const nextRollNumber = await getNextRollNumberInternal(
+      rawSchoolId,
+      academicYear,
+      classId,
+      sectionId
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        nextRollNumber,
+      },
+    });
+  } catch (error) {
+    console.error("Get Next Roll Number Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to determine next roll number",
+    });
+  }
+};
+
 const createStudent = async (req, res) => {
   try {
-    const {
+    let {
       admissionNumber,
       firstName,
       middleName,
@@ -34,25 +179,26 @@ const createStudent = async (req, res) => {
       admissionDate,
       password,
     } = req.body;
+
     if (
-      !admissionNumber ||
       !firstName ||
       !gender ||
       !dateOfBirth ||
       !academicYear ||
       !classId ||
-      !sectionId ||
-      rollNumber === undefined
-    )
+      !sectionId
+    ) {
       return res
         .status(400)
         .json({
           success: false,
           message:
-            "Admission number, name, gender, DOB, academic year, class, section and roll number are required",
+            "First name, gender, DOB, academic year, class and section are required",
         });
-    const schoolId = req.user.school._id,
-      admission = admissionNumber.toUpperCase();
+    }
+
+    const schoolId = req.user.school?._id || req.user.school;
+
     const year = await AcademicYear.findOne({
       _id: academicYear,
       school: schoolId,
@@ -61,6 +207,7 @@ const createStudent = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Academic year not found" });
+
     const cls = await Class.findOne({
       _id: classId,
       school: schoolId,
@@ -71,6 +218,7 @@ const createStudent = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Class not found" });
+
     const section = await Section.findOne({
       _id: sectionId,
       school: schoolId,
@@ -85,36 +233,42 @@ const createStudent = async (req, res) => {
           success: false,
           message: "Section does not belong to this class or academic year",
         });
-    if (rollNumber > section.capacity)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Roll number cannot be greater than section capacity",
-        });
-    if (await Student.findOne({ school: schoolId, admissionNumber: admission }))
-      return res
-        .status(409)
-        .json({ success: false, message: "Admission number already exists" });
-    if (
-      await Student.findOne({
-        school: schoolId,
-        academicYear,
-        class: classId,
-        section: sectionId,
-        rollNumber,
-        status: "active",
-      })
-    )
+
+    // Auto-generate admissionNumber if missing or empty
+    if (!admissionNumber || String(admissionNumber).trim() === "" || admissionNumber === "AUTO") {
+      admissionNumber = await getNextAdmissionNumberInternal(schoolId);
+    }
+    const admission = String(admissionNumber).trim().toUpperCase();
+
+    // Check duplicate admissionNumber
+    if (await Student.findOne({ school: schoolId, admissionNumber: admission })) {
       return res
         .status(409)
-        .json({
-          success: false,
-          message: "This roll number is already assigned in this section",
-        });
+        .json({ success: false, message: `Admission number '${admission}' already exists` });
+    }
+
+    // Auto-generate rollNumber if missing or 0
+    let assignedRoll = Number(rollNumber);
+    if (!assignedRoll || assignedRoll <= 0 || isNaN(assignedRoll)) {
+      assignedRoll = await getNextRollNumberInternal(schoolId, academicYear, classId, sectionId);
+    }
+
+    // Check duplicate rollNumber in same section
+    const duplicateRoll = await Student.findOne({
+      school: schoolId,
+      academicYear,
+      class: classId,
+      section: sectionId,
+      rollNumber: assignedRoll,
+      status: "active",
+    });
+    if (duplicateRoll) {
+      assignedRoll = await getNextRollNumberInternal(schoolId, academicYear, classId, sectionId);
+    }
+
     const normalizedEmail = email
       ? email.toLowerCase()
-      : `${admission.toLowerCase()}@student.local`;
+      : `${admission.toLowerCase().replace(/[^a-z0-9]/g, "")}@student.local`;
     if (await User.findOne({ school: schoolId, email: normalizedEmail }))
       return res
         .status(409)
@@ -165,7 +319,7 @@ const createStudent = async (req, res) => {
       academicYear,
       class: classId,
       section: sectionId,
-      rollNumber,
+      rollNumber: assignedRoll,
       guardian: normalizedGuardian,
       admissionDate,
     });
@@ -676,4 +830,6 @@ module.exports = {
   updateStudent,
   deleteStudent,
   promoteStudents,
+  getNextAdmissionNumber,
+  getNextRollNumber,
 };

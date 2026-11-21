@@ -316,10 +316,30 @@ export default function StudentsPage() {
     fetchStudentsList(viewClass, sectionId);
   };
 
+  // Fetch next roll number for class and section
+  const fetchNextRollNumber = async (classId, sectionId) => {
+    const cId = classId || form.getFieldValue("classId") || modalClassSelected;
+    const sId = sectionId || form.getFieldValue("sectionId");
+    const academicYear = form.getFieldValue("academicYear");
+    if (!cId || !sId) return;
+    try {
+      const { data } = await api.get(
+        `/students/next-roll-number?classId=${cId}&sectionId=${sId}${
+          academicYear ? `&academicYear=${academicYear}` : ""
+        }`
+      );
+      if (data.success && data.data?.nextRollNumber) {
+        form.setFieldsValue({ rollNumber: data.data.nextRollNumber });
+      }
+    } catch (err) {
+      console.warn("Could not fetch next roll number:", err);
+    }
+  };
+
   // For Admission Modal Class selection
   const handleModalClassChange = async (classId) => {
     setModalClassSelected(classId);
-    form.setFieldsValue({ sectionId: undefined, feeStructureId: undefined });
+    form.setFieldsValue({ sectionId: undefined, feeStructureId: undefined, rollNumber: undefined });
     if (!classId) {
       setSections([]);
       setClassFeeStructures([]);
@@ -331,21 +351,43 @@ export default function StudentsPage() {
         api.get(`/fee-structures?classId=${classId}`),
       ]);
       if (secRes.data.success) {
-        setSections(secRes.data.data.sections || []);
+        const loadedSections = secRes.data.data.sections || [];
+        setSections(loadedSections);
+        if (loadedSections.length > 0) {
+          const firstSection = loadedSections[0]._id;
+          form.setFieldsValue({ sectionId: firstSection });
+          fetchNextRollNumber(classId, firstSection);
+        }
       }
       if (feeRes.data.success) {
         const structs = feeRes.data.data.feeStructures || [];
         setClassFeeStructures(structs);
         if (structs.length > 0) {
           form.setFieldsValue({ feeStructureId: structs[0]._id });
-          const sumAmt = structs[0].components?.reduce((s, c) => s + (c.amount || 0), 0) || 0;
-          if (sumAmt > 0) {
-            setAdmMonthlyTuition(Math.round(sumAmt / 12));
-          }
         }
       }
     } catch (err) {
       console.error("Failed to load sections/fee structures for modal:", err);
+    }
+  };
+
+  const handleModalSectionChange = (sectionId) => {
+    form.setFieldsValue({ sectionId });
+    const classId = form.getFieldValue("classId") || modalClassSelected;
+    if (classId && sectionId) {
+      fetchNextRollNumber(classId, sectionId);
+    }
+  };
+
+  // Fetch next admission number
+  const fetchNextAdmissionNumber = async () => {
+    try {
+      const { data } = await api.get("/students/next-admission-number");
+      if (data.success && data.data?.nextAdmissionNumber) {
+        form.setFieldsValue({ admissionNumber: data.data.nextAdmissionNumber });
+      }
+    } catch (err) {
+      console.warn("Could not fetch next admission number:", err);
     }
   };
 
@@ -405,6 +447,9 @@ export default function StudentsPage() {
           },
           extraFees: Number(admExtraAmount || 0),
           offer: offerObj,
+          discount: Number(admissionFeeSummary.discount || 0),
+          totalAmount: Number(admissionFeeSummary.gross || 0),
+          payableAmount: Number(admissionFeeSummary.net || 0),
           remarks: values.feeRemarks || "Configured during admission",
         };
       }
@@ -522,9 +567,11 @@ export default function StudentsPage() {
       handleModalClassChange(viewClass);
       if (viewSection && viewSection !== "all") {
         form.setFieldsValue({ sectionId: viewSection });
+        fetchNextRollNumber(viewClass, viewSection);
       }
     }
     setModalOpen(true);
+    fetchNextAdmissionNumber();
   };
 
   // View Student Details Drawer (also loads live fee status)
@@ -1619,10 +1666,26 @@ export default function StudentsPage() {
             <Col xs={24} sm={12}>
               <Form.Item
                 name="admissionNumber"
-                label="Admission Number"
+                label={
+                  <Space size={4}>
+                    <span>Admission Number</span>
+                    <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", margin: 0 }}>Auto</Tag>
+                  </Space>
+                }
                 rules={[{ required: true, message: "Enter admission number" }]}
               >
-                <Input placeholder="e.g. ADM-2026-001" style={{ textTransform: "uppercase" }} />
+                <Input
+                  placeholder="e.g. ADM-2026-0001"
+                  style={{ textTransform: "uppercase" }}
+                  addonAfter={
+                    <Tooltip title="Regenerate next admission number">
+                      <ReloadOutlined
+                        style={{ cursor: "pointer", color: "#1677ff" }}
+                        onClick={fetchNextAdmissionNumber}
+                      />
+                    </Tooltip>
+                  }
+                />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -1717,7 +1780,11 @@ export default function StudentsPage() {
                 label="Section"
                 rules={[{ required: true, message: "Select section" }]}
               >
-                <Select placeholder="Select Section" disabled={!modalClassSelected && !form.getFieldValue("classId")}>
+                <Select
+                  placeholder="Select Section"
+                  disabled={!modalClassSelected && !form.getFieldValue("classId")}
+                  onChange={handleModalSectionChange}
+                >
                   {sections.map((s) => (
                     <Option key={s._id} value={s._id}>
                       {s.name} (Cap: {s.capacity || 40})
@@ -1729,10 +1796,15 @@ export default function StudentsPage() {
             <Col xs={24} sm={6}>
               <Form.Item
                 name="rollNumber"
-                label="Roll No"
+                label={
+                  <Space size={4}>
+                    <span>Roll No</span>
+                    <Tag color="cyan" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", margin: 0 }}>Auto</Tag>
+                  </Space>
+                }
                 rules={[{ required: true, message: "Enter roll no" }]}
               >
-                <Input type="number" min={1} placeholder="1" />
+                <Input type="number" min={1} placeholder="Auto" />
               </Form.Item>
             </Col>
           </Row>
