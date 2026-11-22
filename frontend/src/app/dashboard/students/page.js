@@ -61,6 +61,8 @@ import {
   SwapOutlined,
   ClockCircleOutlined,
   EnvironmentOutlined,
+  KeyOutlined,
+  CopyOutlined,
 } from "@ant-design/icons";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -111,6 +113,8 @@ export default function StudentsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [modalClassSelected, setModalClassSelected] = useState(null);
   const [form] = Form.useForm();
+  const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
+  const [createdCredentials, setCreatedCredentials] = useState(null);
 
   // Edit Student Modal
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -514,8 +518,8 @@ export default function StudentsPage() {
         lastName: values.lastName,
         gender: values.gender,
         dateOfBirth: values.dateOfBirth?.format("YYYY-MM-DD"),
-        email: values.email,
-        phone: values.phone,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
         bloodGroup: values.bloodGroup,
         academicYear: values.academicYear,
         classId: values.classId,
@@ -525,7 +529,8 @@ export default function StudentsPage() {
           name: values.guardianName,
           guardianName: values.guardianName,
           fatherName: values.guardianName,
-          phone: values.guardianPhone,
+          phone: values.guardianPhone || undefined,
+          email: values.guardianEmail || undefined,
           relation: values.guardianRelation || "guardian",
         },
       };
@@ -596,6 +601,13 @@ export default function StudentsPage() {
             ? "Student admitted & fee structure configured successfully!"
             : "Student admitted successfully!"
         );
+        if (data.data?.studentCredentials || data.data?.parentCredentials) {
+          setCreatedCredentials({
+            student: data.data.studentCredentials,
+            parent: data.data.parentCredentials,
+          });
+          setCredentialsModalOpen(true);
+        }
         setModalOpen(false);
         form.resetFields();
         fetchStudentsList(viewClass, viewSection);
@@ -987,7 +999,7 @@ export default function StudentsPage() {
               {r.firstName} {r.lastName || ""}
             </Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {r.user?.email || r.email || "No portal email"}
+              {r.user?.username ? `@${r.user.username}` : (r.user?.email || r.email || r.phone || "No login ID")}
             </Text>
           </div>
         </Space>
@@ -1709,8 +1721,13 @@ export default function StudentsPage() {
               ERP Portal Account
             </Title>
             <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label="Portal Username / Login ID">
+                <Text code strong style={{ color: "#0958d9", fontSize: 13 }}>
+                  {selectedStudent.user?.username || selectedStudent.phone || selectedStudent.admissionNumber || "N/A"}
+                </Text>
+              </Descriptions.Item>
               <Descriptions.Item label="Portal Email">
-                {selectedStudent.user?.email || "No separate account"}
+                {selectedStudent.user?.email || selectedStudent.email || "No email (Username login)"}
               </Descriptions.Item>
               <Descriptions.Item label="Account Status">
                 <Tag color={selectedStudent.user?.isActive !== false ? "green" : "red"}>
@@ -2090,18 +2107,108 @@ export default function StudentsPage() {
             </Col>
           </Row>
 
+          {/* Student Contact Information */}
           <Row gutter={16}>
             <Col xs={24} sm={12}>
-              <Form.Item name="guardianName" label="Guardian / Parent Name">
-                <Input placeholder="Guardian Name" />
+              <Form.Item
+                name="phone"
+                label={
+                  <Space size={4}>
+                    <span>Student Mobile</span>
+                    <Text type="secondary" style={{ fontSize: 11 }}>(Optional)</Text>
+                  </Space>
+                }
+              >
+                <Input prefix={<PhoneOutlined style={{ color: "#9ca3af" }} />} placeholder="e.g. 9876543210 (Optional)" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="guardianPhone" label="Guardian Phone">
-                <Input placeholder="+91 98765 43210" />
+              <Form.Item
+                name="email"
+                label={
+                  <Space size={4}>
+                    <span>Student Email</span>
+                    <Text type="secondary" style={{ fontSize: 11 }}>(Optional)</Text>
+                  </Space>
+                }
+                rules={[{ type: "email", message: "Enter valid email address" }]}
+              >
+                <Input prefix={<MailOutlined style={{ color: "#9ca3af" }} />} placeholder="student@example.com (Optional)" />
               </Form.Item>
             </Col>
           </Row>
+
+          {/* Parent / Guardian & Portal Login */}
+          <Divider orientation="left" style={{ margin: "16px 0 12px" }}>
+            <Space>
+              <TeamOutlined style={{ color: "#1677ff" }} />
+              <span style={{ fontWeight: 600 }}>Parent / Guardian & Portal Login Setup</span>
+            </Space>
+          </Divider>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="guardianName"
+                label="Parent / Guardian Name"
+                rules={[{ required: true, message: "Enter parent or guardian name" }]}
+              >
+                <Input prefix={<UserOutlined style={{ color: "#9ca3af" }} />} placeholder="e.g. Rajesh Kumar" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="guardianRelation"
+                label="Relationship"
+                initialValue="father"
+              >
+                <Select placeholder="Select Relation">
+                  <Option value="father">Father</Option>
+                  <Option value="mother">Mother</Option>
+                  <Option value="guardian">Guardian</Option>
+                  <Option value="other">Other</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="guardianPhone"
+                label={
+                  <Space size={4}>
+                    <span>Parent Phone</span>
+                    <Text type="secondary" style={{ fontSize: 11 }}>(Optional)</Text>
+                  </Space>
+                }
+              >
+                <Input prefix={<PhoneOutlined style={{ color: "#9ca3af" }} />} placeholder="e.g. 9876543210 (Optional)" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="guardianEmail"
+                label={
+                  <Space size={4}>
+                    <span>Parent Email</span>
+                    <Text type="secondary" style={{ fontSize: 11 }}>(Optional)</Text>
+                  </Space>
+                }
+                rules={[{ type: "email", message: "Enter valid email address" }]}
+              >
+                <Input prefix={<MailOutlined style={{ color: "#9ca3af" }} />} placeholder="parent@example.com (Optional)" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16, fontSize: 12, borderRadius: 6 }}
+            message="Auto Portal Credentials"
+            description="Portal login accounts will be generated for both Student and Parent. If email is not given, phone number is used as username. If neither email nor phone is provided, student's username will be name + roll (e.g. rahul12). Password defaults to name + DOB."
+          />
 
           {/* Fee Setup & Scholarship / Offer Section */}
           <Divider orientation="left" style={{ margin: "24px 0 16px" }}>
@@ -2372,6 +2479,134 @@ export default function StudentsPage() {
             </Space>
           </div>
         </Form>
+      </Modal>
+
+      {/* 5A. Admission Success Credentials Modal */}
+      <Modal
+        title={
+          <Space>
+            <CheckCircleOutlined style={{ color: "#52c41a", fontSize: 20 }} />
+            <span style={{ fontWeight: 700 }}>Portal Login Credentials Assigned</span>
+          </Space>
+        }
+        open={credentialsModalOpen}
+        onCancel={() => setCredentialsModalOpen(false)}
+        footer={[
+          <Button
+            key="copy"
+            icon={<CopyOutlined />}
+            onClick={() => {
+              const stu = createdCredentials?.student;
+              const par = createdCredentials?.parent;
+              const text = `=== SCHOOL ERP PORTAL LOGIN CREDENTIALS ===\n\n[STUDENT LOGIN]\nName: ${stu?.name || ""}\nAdmission No: ${stu?.admissionNumber || ""}\nUsername / Login ID: ${stu?.username || ""}\nPassword: ${stu?.password || ""}\n\n[PARENT LOGIN]\nGuardian: ${par?.name || ""}\nParent ID: ${par?.parentId || ""}\nUsername / Login ID: ${par?.username || ""}\nPassword: ${par?.password || ""}\n\nPortal Login URL: ${window.location.origin}/login`;
+              navigator.clipboard.writeText(text);
+              message.success("All credentials copied to clipboard!");
+            }}
+          >
+            Copy All Credentials
+          </Button>,
+          <Button key="ok" type="primary" onClick={() => setCredentialsModalOpen(false)}>
+            Done
+          </Button>,
+        ]}
+        width={580}
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">
+            Admission created successfully. Login accounts have been generated for both the student and parent. You can share these credentials with them.
+          </Text>
+        </div>
+
+        {/* Student Credentials Card */}
+        <Card
+          size="small"
+          title={
+            <Space>
+              <UserOutlined style={{ color: "#1677ff" }} />
+              <span style={{ fontWeight: 600 }}>Student Portal Account</span>
+            </Space>
+          }
+          style={{ marginBottom: 16, borderColor: "#91caff", background: "#f0f7ff" }}
+          extra={
+            <Button
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => {
+                const stu = createdCredentials?.student;
+                const text = `Student Portal Login:\nName: ${stu?.name}\nUsername / Portal ID: ${stu?.username}\nPassword: ${stu?.password}`;
+                navigator.clipboard.writeText(text);
+                message.success("Student credentials copied!");
+              }}
+            >
+              Copy
+            </Button>
+          }
+        >
+          <Descriptions size="small" column={1} bordered>
+            <Descriptions.Item label="Student Name">
+              <Text strong>{createdCredentials?.student?.name}</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Admission No">
+              <Tag color="blue">{createdCredentials?.student?.admissionNumber}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Portal Username / Login ID">
+              <Text code strong style={{ fontSize: 13, color: "#0958d9" }}>
+                {createdCredentials?.student?.username}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Password">
+              <Text code strong style={{ fontSize: 13, color: "#d4380d" }}>
+                {createdCredentials?.student?.password}
+              </Text>
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+
+        {/* Parent Credentials Card */}
+        <Card
+          size="small"
+          title={
+            <Space>
+              <TeamOutlined style={{ color: "#fa8c16" }} />
+              <span style={{ fontWeight: 600 }}>Parent / Guardian Portal Account</span>
+            </Space>
+          }
+          style={{ borderColor: "#ffd591", background: "#fffaf0" }}
+          extra={
+            <Button
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => {
+                const par = createdCredentials?.parent;
+                const text = `Parent Portal Login:\nGuardian: ${par?.name}\nParent ID: ${par?.parentId}\nUsername / Portal ID: ${par?.username}\nPassword: ${par?.password}`;
+                navigator.clipboard.writeText(text);
+                message.success("Parent credentials copied!");
+              }}
+            >
+              Copy
+            </Button>
+          }
+        >
+          <Descriptions size="small" column={1} bordered>
+            <Descriptions.Item label="Guardian Name">
+              <Text strong>{createdCredentials?.parent?.name}</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Parent Portal ID">
+              <Tag color="orange">{createdCredentials?.parent?.parentId}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Portal Username / Login ID">
+              <Text code strong style={{ fontSize: 13, color: "#d46b08" }}>
+                {createdCredentials?.parent?.username}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Password">
+              <Text code strong style={{ fontSize: 13, color: "#d4380d" }}>
+                {createdCredentials?.parent?.password}
+              </Text>
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
       </Modal>
 
       {/* 5B. Student Promotion Wizard Modal */}

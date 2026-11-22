@@ -59,8 +59,13 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  const login = async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password });
+  const login = async (identifier, password) => {
+    const { data } = await api.post("/auth/login", {
+      identifier,
+      email: identifier,
+      username: identifier,
+      password,
+    });
     if (data.success) {
       const { accessToken, refreshToken, user: authUser } = data.data;
       localStorage.setItem("accessToken", accessToken);
@@ -70,6 +75,8 @@ export const AuthProvider = ({ children }) => {
         id: authUser.id,
         name: authUser.name,
         email: authUser.email,
+        username: authUser.username,
+        phone: authUser.phone,
         role: authUser.role,
         school: authUser.school,
         teacher: authUser.teacher,

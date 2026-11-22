@@ -21,6 +21,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
 
+    username: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+    },
+
     password: {
       type: String,
       required: true,
@@ -94,5 +101,7 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ school: 1, email: 1 }, { unique: true });
+userSchema.index({ school: 1, username: 1 }, { sparse: true });
+userSchema.index({ school: 1, phone: 1 }, { sparse: true });
 
 module.exports = mongoose.model("User", userSchema);

@@ -11,6 +11,10 @@ import {
   Tag,
   Space,
   Spin,
+  Modal,
+  Form,
+  Input,
+  message,
 } from "antd";
 import {
   DashboardOutlined,
@@ -34,20 +38,45 @@ import {
   WhatsAppOutlined,
   MessageOutlined,
   CarOutlined,
+  KeyOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import NotificationBell from "@/components/NotificationBell";
+import api from "@/lib/api";
 
 const { Header, Sider, Content } = Layout;
 const { Text, Title } = Typography;
 
 export default function DashboardLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+  const [passwordForm] = Form.useForm();
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  const handleChangePassword = async (values) => {
+    setChangePasswordLoading(true);
+    try {
+      const { data } = await api.put("/auth/change-password", {
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+        confirmPassword: values.confirmPassword,
+      });
+      if (data.success) {
+        message.success("Password changed successfully!");
+        setChangePasswordOpen(false);
+        passwordForm.resetFields();
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to change password");
+    } finally {
+      setChangePasswordLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && !user) {
@@ -330,10 +359,20 @@ export default function DashboardLayout({ children }) {
             <Text strong>{user.name}</Text>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {user.email}
+              {user.username ? `@${user.username} • ` : ""}{user.email}
             </Text>
           </div>
         ),
+      },
+      { type: "divider" },
+      {
+        key: "change-password",
+        icon: <KeyOutlined />,
+        label: "Change Password",
+        onClick: () => {
+          passwordForm.resetFields();
+          setChangePasswordOpen(true);
+        },
       },
       { type: "divider" },
       {
@@ -493,6 +532,87 @@ export default function DashboardLayout({ children }) {
           {children}
         </Content>
       </Layout>
+
+      {/* Universal Change Password Modal */}
+      <Modal
+        title={
+          <Space>
+            <KeyOutlined style={{ color: "#1677ff" }} />
+            <span>Change Account Password</span>
+          </Space>
+        }
+        open={changePasswordOpen}
+        onCancel={() => {
+          setChangePasswordOpen(false);
+          passwordForm.resetFields();
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">
+            Update your login credentials. You will need your current password to set a new password.
+          </Text>
+        </div>
+        <Form
+          form={passwordForm}
+          layout="vertical"
+          onFinish={handleChangePassword}
+          requiredMark={false}
+        >
+          <Form.Item
+            name="currentPassword"
+            label="Current Password"
+            rules={[{ required: true, message: "Please enter your current password" }]}
+          >
+            <Input.Password placeholder="Enter current password" />
+          </Form.Item>
+
+          <Form.Item
+            name="newPassword"
+            label="New Password"
+            rules={[
+              { required: true, message: "Please enter your new password" },
+              { min: 6, message: "Password must be at least 6 characters" },
+            ]}
+          >
+            <Input.Password placeholder="At least 6 characters" />
+          </Form.Item>
+
+          <Form.Item
+            name="confirmPassword"
+            label="Confirm New Password"
+            dependencies={["newPassword"]}
+            rules={[
+              { required: true, message: "Please confirm your new password" },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue("newPassword") === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error("The two passwords do not match!"));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="Re-enter new password" />
+          </Form.Item>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+            <Button
+              onClick={() => {
+                setChangePasswordOpen(false);
+                passwordForm.resetFields();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" loading={changePasswordLoading}>
+              Update Password
+            </Button>
+          </div>
+        </Form>
+      </Modal>
     </Layout>
   );
 }

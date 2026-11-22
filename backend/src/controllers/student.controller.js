@@ -7,12 +7,44 @@ const Class = require("../models/Class");
 const Section = require("../models/Section");
 const User = require("../models/User");
 const Role = require("../models/Role");
+const Parent = require("../models/Parent");
+const ParentStudent = require("../models/ParentStudent");
 const StudentFee = require("../models/StudentFee");
 const FeeStructure = require("../models/FeeStructure");
 const TransportVehicle = require("../models/TransportVehicle");
 const { calculateStudentFeeDetails } = require("../services/feeCalculation.service");
 
 const tempPassword = () => crypto.randomBytes(5).toString("base64url");
+
+/**
+ * Helper to generate the next unique parent ID for a school (e.g. PAR1001)
+ */
+const getNextParentIdInternal = async (schoolId) => {
+  const parents = await Parent.find({ school: schoolId })
+    .select("parentId")
+    .sort({ createdAt: -1 })
+    .limit(200);
+
+  let maxSeq = 1000;
+  for (const p of parents) {
+    if (p.parentId) {
+      const numMatch = p.parentId.match(/(\d+)$/);
+      if (numMatch) {
+        const num = parseInt(numMatch[1], 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      }
+    }
+  }
+  let nextSeq = maxSeq + 1;
+  let candidate = `PAR${nextSeq}`;
+  while (await Parent.findOne({ school: schoolId, parentId: candidate })) {
+    nextSeq++;
+    candidate = `PAR${nextSeq}`;
+  }
+  return candidate;
+};
 
 /**
  * Helper to generate the next unique admission number for a school
@@ -267,22 +299,77 @@ const createStudent = async (req, res) => {
       assignedRoll = await getNextRollNumberInternal(schoolId, academicYear, classId, sectionId);
     }
 
-    const normalizedEmail = email
-      ? email.toLowerCase()
-      : `${admission.toLowerCase().replace(/[^a-z0-9]/g, "")}@student.local`;
-    if (await User.findOne({ school: schoolId, email: normalizedEmail }))
-      return res
-        .status(409)
-        .json({
+    const cleanFirstName = String(firstName || "student")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
+    // Determine DOB year for password generation
+    let dobYear = "2026";
+    if (dateOfBirth) {
+      const d = new Date(dateOfBirth);
+      if (!isNaN(d.getFullYear())) {
+        dobYear = String(d.getFullYear());
+      } else {
+        const match = String(dateOfBirth).match(/\d{4}/);
+        if (match) dobYear = match[0];
+      }
+    }
+
+    // Determine Student Username:
+    // 1. Student email if provided
+    // 2. Else phone if provided
+    // 3. Else name + rollNumber
+    let studentUsername = "";
+    if (email && String(email).trim()) {
+      studentUsername = String(email).trim().toLowerCase();
+    } else if (phone && String(phone).trim()) {
+      studentUsername = String(phone).trim().toLowerCase();
+    } else {
+      studentUsername = `${cleanFirstName || "student"}${assignedRoll}`;
+    }
+
+    let candUsername = studentUsername;
+    let uSuffix = 1;
+    while (await User.findOne({ school: schoolId, username: candUsername })) {
+      candUsername = `${studentUsername}${uSuffix}`;
+      uSuffix++;
+    }
+    studentUsername = candUsername;
+
+    // Student Login Email (Synthetic if not provided)
+    let normalizedEmail = email ? String(email).trim().toLowerCase() : "";
+    if (normalizedEmail) {
+      if (await User.findOne({ school: schoolId, email: normalizedEmail })) {
+        return res.status(409).json({
           success: false,
           message: "Student login email is already registered",
         });
+      }
+    } else {
+      normalizedEmail = `${studentUsername.replace(/[^a-z0-9]/g, "")}@student.local`;
+      let eSuffix = 1;
+      while (await User.findOne({ school: schoolId, email: normalizedEmail })) {
+        normalizedEmail = `${studentUsername.replace(/[^a-z0-9]/g, "")}${eSuffix}@student.local`;
+        eSuffix++;
+      }
+    }
+
     const role = await Role.findOne({ name: "student" });
     if (!role)
       return res
         .status(500)
         .json({ success: false, message: "Student role is not configured" });
-    const plain = password || tempPassword();
+
+    // Student Password: name and DOB if not provided
+    let studentPlainPassword = password;
+    if (!studentPlainPassword) {
+      studentPlainPassword = `${cleanFirstName || "student"}@${dobYear}`;
+      if (studentPlainPassword.length < 6) {
+        studentPlainPassword = `${cleanFirstName || "student"}123@${dobYear}`;
+      }
+    }
+
     const normalizedGuardian =
       guardian && typeof guardian === "object"
         ? {
@@ -304,6 +391,7 @@ const createStudent = async (req, res) => {
               "",
           }
         : guardian;
+
     const student = await Student.create({
       school: schoolId,
       admissionNumber: admission,
@@ -324,12 +412,14 @@ const createStudent = async (req, res) => {
       guardian: normalizedGuardian,
       admissionDate,
     });
+
     try {
       const user = await User.create({
         school: schoolId,
         name: `${firstName} ${lastName || ""}`.trim(),
+        username: studentUsername,
         email: normalizedEmail,
-        password: await bcrypt.hash(plain, 12),
+        password: await bcrypt.hash(studentPlainPassword, 12),
         role: role._id,
         phone,
         student: student._id,
@@ -365,6 +455,150 @@ const createStudent = async (req, res) => {
       }
 
       await student.save();
+
+      // Parent Account Creation / Linking
+      const parentRole = await Role.findOne({ name: "parent" });
+      let parentCredentials = null;
+
+      if (normalizedGuardian && parentRole) {
+        const gName = (
+          normalizedGuardian.name ||
+          normalizedGuardian.guardianName ||
+          normalizedGuardian.fatherName ||
+          "Parent"
+        ).trim();
+        const cleanGName =
+          gName.toLowerCase().replace(/[^a-z0-9]/g, "") || "parent";
+        const gPhone = normalizedGuardian.phone
+          ? String(normalizedGuardian.phone).trim()
+          : "";
+        const gEmail = normalizedGuardian.email
+          ? String(normalizedGuardian.email).trim().toLowerCase()
+          : "";
+        const gRelation = [
+          "father",
+          "mother",
+          "guardian",
+          "other",
+        ].includes(normalizedGuardian.relation)
+          ? normalizedGuardian.relation
+          : "guardian";
+
+        let existingParent = null;
+        if (gPhone) {
+          existingParent = await Parent.findOne({
+            school: schoolId,
+            phone: gPhone,
+          });
+        }
+
+        if (existingParent) {
+          // Link student to existing parent
+          await ParentStudent.findOneAndUpdate(
+            { school: schoolId, parent: existingParent._id, student: student._id },
+            { relation: gRelation, isPrimary: true },
+            { upsert: true, new: true }
+          );
+
+          const existingParentUser = await User.findById(existingParent.user);
+          parentCredentials = {
+            parentId: existingParent.parentId,
+            name: existingParent.firstName,
+            username:
+              existingParentUser?.username ||
+              existingParentUser?.email ||
+              existingParent.phone ||
+              existingParent.parentId,
+            password: "(Existing parent account password)",
+            phone: existingParent.phone,
+            isExisting: true,
+          };
+        } else {
+          // Generate Parent username:
+          // 1. Parent email if provided
+          // 2. Else parent phone if provided
+          // 3. Else parent_ + name + roll
+          let pUsername = "";
+          if (gEmail) {
+            pUsername = gEmail;
+          } else if (gPhone) {
+            pUsername = gPhone;
+          } else {
+            pUsername = `parent_${cleanGName}${assignedRoll}`;
+          }
+
+          let pUserCandidate = pUsername;
+          let pSuffix = 1;
+          while (
+            await User.findOne({ school: schoolId, username: pUserCandidate })
+          ) {
+            pUserCandidate = `${pUsername}${pSuffix}`;
+            pSuffix++;
+          }
+          pUsername = pUserCandidate;
+
+          // Synthetic parent email if not provided
+          let pEmail = gEmail;
+          if (!pEmail) {
+            pEmail = `${pUsername.replace(/[^a-z0-9]/g, "")}@parent.local`;
+            let pEmailSuffix = 1;
+            while (await User.findOne({ school: schoolId, email: pEmail })) {
+              pEmail = `${pUsername.replace(/[^a-z0-9]/g, "")}${pEmailSuffix}@parent.local`;
+              pEmailSuffix++;
+            }
+          }
+
+          let parentPlainPassword = `${cleanGName}@${dobYear}`;
+          if (parentPlainPassword.length < 6) {
+            parentPlainPassword = `${cleanGName}123@${dobYear}`;
+          }
+
+          const nextParentId = await getNextParentIdInternal(schoolId);
+          const parentPhoneValue =
+            gPhone || `PAR-${admission.replace(/[^a-zA-Z0-9]/g, "")}`;
+
+          const parentUser = await User.create({
+            school: schoolId,
+            name: gName,
+            username: pUsername,
+            email: pEmail,
+            password: await bcrypt.hash(parentPlainPassword, 12),
+            role: parentRole._id,
+            phone: gPhone || undefined,
+          });
+
+          const parentDoc = await Parent.create({
+            school: schoolId,
+            user: parentUser._id,
+            parentId: nextParentId,
+            firstName: gName,
+            phone: parentPhoneValue,
+            email: pEmail,
+            password: await bcrypt.hash(parentPlainPassword, 12),
+            relation: gRelation,
+          });
+
+          parentUser.parent = parentDoc._id;
+          await parentUser.save();
+
+          await ParentStudent.create({
+            school: schoolId,
+            parent: parentDoc._id,
+            student: student._id,
+            relation: gRelation,
+            isPrimary: true,
+          });
+
+          parentCredentials = {
+            parentId: parentDoc.parentId,
+            name: gName,
+            username: pUsername,
+            password: parentPlainPassword,
+            phone: gPhone || undefined,
+            isExisting: false,
+          };
+        }
+      }
 
       let studentFee = null;
       if (req.body.fee) {
@@ -405,17 +639,28 @@ const createStudent = async (req, res) => {
         }
       }
 
+      const studentCredentials = {
+        admissionNumber: admission,
+        rollNumber: assignedRoll,
+        name: `${firstName} ${lastName || ""}`.trim(),
+        username: studentUsername,
+        password: studentPlainPassword,
+        phone: phone || undefined,
+        email: email || undefined,
+      };
+
       return res
         .status(201)
         .json({
           success: true,
           message: studentFee
-            ? "Student, login account, and fee setup created successfully"
-            : "Student and login account created successfully",
+            ? "Student, login credentials, and fee setup created successfully"
+            : "Student and login credentials created successfully",
           data: {
             student,
-            user: { id: user._id, email: user.email, role: "student" },
-            temporaryPassword: password ? undefined : plain,
+            user: { id: user._id, email: user.email, username: user.username, role: "student" },
+            studentCredentials,
+            parentCredentials,
             studentFee,
           },
         });
@@ -455,7 +700,7 @@ const getStudents = async (req, res) => {
         .populate("academicYear", "name")
         .populate("class", "name code")
         .populate("section", "name code")
-        .populate("user", "email isActive lastLogin")
+        .populate("user", "email username phone isActive lastLogin")
         .populate("transport.vehicle")
         .sort({ rollNumber: 1 }),
       Student.countDocuments({ school: schoolObjectId }),
@@ -508,7 +753,7 @@ const getStudentById = async (req, res) => {
       .populate("academicYear", "name")
       .populate("class", "name code")
       .populate("section", "name code")
-      .populate("user", "email isActive lastLogin")
+      .populate("user", "email username phone isActive lastLogin")
       .populate("transport.vehicle");
     if (!student)
       return res

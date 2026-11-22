@@ -24,7 +24,8 @@ export default function LoginPage() {
     setLoading(true);
     setErrorMsg("");
     try {
-      const user = await login(values.email, values.password);
+      const identifier = values.identifier || values.email;
+      const user = await login(identifier, values.password);
       router.push("/dashboard");
     } catch (err) {
       setErrorMsg(
@@ -76,7 +77,7 @@ export default function LoginPage() {
             School ERP Portal
           </Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            Sign in to access your institutional dashboard
+            Sign in with your Email, Username, Phone, or Admission No
           </Text>
         </div>
 
@@ -97,17 +98,16 @@ export default function LoginPage() {
           size="large"
         >
           <Form.Item
-            name="email"
-            label="Email Address"
+            name="identifier"
+            label="Email, Username, or Phone Number"
             rules={[
-              { required: true, message: "Please enter your email" },
-              { type: "email", message: "Please enter a valid email address" },
+              { required: true, message: "Please enter your username, email, or phone number" },
             ]}
           >
             <Input
               prefix={<UserOutlined style={{ color: "#9ca3af" }} />}
-              placeholder="e.g. principal@school.edu"
-              autoComplete="email"
+              placeholder="e.g. rahul12, 9876543210, PAR1001, or email"
+              autoComplete="username"
             />
           </Form.Item>
 
