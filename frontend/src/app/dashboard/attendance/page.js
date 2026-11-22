@@ -312,6 +312,259 @@ function StudentAttendanceView({ user }) {
 }
 
 // ==========================================
+// 1B. PARENT ATTENDANCE PORTAL COMPONENT
+// ==========================================
+function ParentAttendanceView({ user }) {
+  const [loading, setLoading] = useState(true);
+  const [children, setChildren] = useState([]);
+  const [selectedChildId, setSelectedChildId] = useState(null);
+  const [attendanceData, setAttendanceData] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const fetchChildren = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/parents/me/children");
+      if (res.data.success) {
+        const list = res.data.data.students || [];
+        setChildren(list);
+        if (list.length > 0) {
+          const firstId = list[0].student?._id || list[0]._id;
+          setSelectedChildId(firstId);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load children:", err);
+      message.error("Failed to load children records");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchChildAttendance = async (studentId) => {
+    if (!studentId) return;
+    setLoading(true);
+    try {
+      const res = await api.get(`/attendance/my-child/${studentId}`);
+      if (res.data.success) {
+        setAttendanceData(res.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to load child attendance:", err);
+      message.error("Failed to load attendance records");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchChildren();
+  }, [user]);
+
+  useEffect(() => {
+    if (selectedChildId) {
+      fetchChildAttendance(selectedChildId);
+    }
+  }, [selectedChildId]);
+
+  const selectedChildObj = children.find(
+    (c) => (c.student?._id || c._id) === selectedChildId
+  );
+  const childStudent = selectedChildObj?.student || selectedChildObj;
+
+  const records = attendanceData?.attendance || [];
+  const summary = attendanceData?.summary || {
+    total: 0,
+    present: 0,
+    absent: 0,
+    late: 0,
+    leave: 0,
+    percentage: 0,
+  };
+
+  const filteredRecords = records.filter((rec) => {
+    if (statusFilter !== "all" && rec.status !== statusFilter) return false;
+    return true;
+  });
+
+  const columns = [
+    {
+      title: "Date",
+      dataIndex: "date",
+      key: "date",
+      render: (d) => (
+        <Space>
+          <CalendarOutlined style={{ color: "#1677ff" }} />
+          <Text strong>{dayjs(d).format("dddd, DD MMMM YYYY")}</Text>
+        </Space>
+      ),
+      sorter: (a, b) => new Date(a.date) - new Date(b.date),
+      defaultSortOrder: "descend",
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
+      render: (st) => {
+        const map = {
+          present: <Tag color="success" icon={<CheckCircleOutlined />}>Present</Tag>,
+          absent: <Tag color="error" icon={<CloseCircleOutlined />}>Absent</Tag>,
+          late: <Tag color="warning" icon={<ClockCircleOutlined />}>Late Arrival</Tag>,
+          leave: <Tag color="processing">Authorized Leave</Tag>,
+        };
+        return map[st] || <Tag>{st}</Tag>;
+      },
+    },
+    {
+      title: "Remarks",
+      dataIndex: "remarks",
+      key: "remarks",
+      render: (r) => r || <Text type="secondary">—</Text>,
+    },
+  ];
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 20 }}>
+        <Title level={3} style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
+          <CheckSquareOutlined style={{ color: "#1677ff" }} /> Child Attendance Monitor
+        </Title>
+        <Text type="secondary">
+          Track daily school attendance, punctuality, and overall attendance percentage for your children.
+        </Text>
+      </div>
+
+      {children.length > 1 && (
+        <Card size="small" style={{ marginBottom: 16, borderRadius: 8 }}>
+          <Space align="center">
+            <Text strong>Select Child:</Text>
+            <Select
+              style={{ width: 260 }}
+              value={selectedChildId}
+              onChange={setSelectedChildId}
+            >
+              {children.map((c) => {
+                const s = c.student || c;
+                return (
+                  <Option key={s._id} value={s._id}>
+                    {s.firstName} {s.lastName || ""} ({s.class?.name || "Class"} - {s.section?.name || "Sec"})
+                  </Option>
+                );
+              })}
+            </Select>
+          </Space>
+        </Card>
+      )}
+
+      {loading && !attendanceData ? (
+        <div style={{ textAlign: "center", padding: 60 }}><Spin size="large" /></div>
+      ) : (
+        <>
+          {childStudent && (
+            <Card
+              style={{
+                marginBottom: 20,
+                borderRadius: 12,
+                background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                borderColor: "#86efac",
+              }}
+            >
+              <Row gutter={[16, 16]} align="middle">
+                <Col xs={24} sm={16}>
+                  <Space size="middle">
+                    <Avatar size={54} style={{ backgroundColor: "#15803d", fontSize: 22 }}>
+                      {(childStudent.firstName?.[0] || "C").toUpperCase()}
+                    </Avatar>
+                    <div>
+                      <Title level={4} style={{ margin: 0, color: "#14532d" }}>
+                        {childStudent.firstName} {childStudent.lastName || ""}
+                      </Title>
+                      <Space size="middle" style={{ marginTop: 4 }}>
+                        <Tag color="green">Roll No: {childStudent.rollNumber || "N/A"}</Tag>
+                        <Tag color="cyan">Adm No: {childStudent.admissionNumber}</Tag>
+                        <Tag color="blue">
+                          {childStudent.class?.name || "Class"} - {childStudent.section?.name || "Section"}
+                        </Tag>
+                      </Space>
+                    </div>
+                  </Space>
+                </Col>
+                <Col xs={24} sm={8} style={{ textAlign: "right" }}>
+                  <Statistic
+                    title={<span style={{ color: "#166534" }}>Overall Attendance Rate</span>}
+                    value={`${summary.percentage || 0}%`}
+                    valueStyle={{
+                      fontWeight: 800,
+                      color: (summary.percentage || 0) >= 75 ? "#15803d" : "#c2410c",
+                      fontSize: 30,
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+          )}
+
+          <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ textAlign: "center", borderRadius: 8 }}>
+                <Statistic title="Total Days" value={summary.total || 0} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ textAlign: "center", borderRadius: 8, background: "#f6ffed" }}>
+                <Statistic title="Present" value={summary.present || 0} valueStyle={{ color: "#52c41a" }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ textAlign: "center", borderRadius: 8, background: "#fff1f0" }}>
+                <Statistic title="Absent" value={summary.absent || 0} valueStyle={{ color: "#ff4d4f" }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ textAlign: "center", borderRadius: 8, background: "#fffbe6" }}>
+                <Statistic
+                  title="Late / Leave"
+                  value={(summary.late || 0) + (summary.leave || 0)}
+                  valueStyle={{ color: "#faad14" }}
+                />
+              </Card>
+            </Col>
+          </Row>
+
+          <Card
+            title={
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <span>Daily Attendance Log</span>
+                <Radio.Group
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  size="small"
+                >
+                  <Radio.Button value="all">All</Radio.Button>
+                  <Radio.Button value="present">Present</Radio.Button>
+                  <Radio.Button value="absent">Absent</Radio.Button>
+                  <Radio.Button value="late">Late</Radio.Button>
+                  <Radio.Button value="leave">Leave</Radio.Button>
+                </Radio.Group>
+              </div>
+            }
+            style={{ borderRadius: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}
+          >
+            <Table
+              dataSource={filteredRecords}
+              columns={columns}
+              rowKey="_id"
+              pagination={{ pageSize: 15 }}
+              locale={{ emptyText: "No attendance records recorded yet." }}
+            />
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
 // 2. TEACHER / ADMIN ATTENDANCE MARKING COMPONENT
 // ==========================================
 export default function AttendancePage() {
@@ -320,6 +573,11 @@ export default function AttendancePage() {
   // If logged in as student, render dedicated student attendance view
   if (user?.role === "student") {
     return <StudentAttendanceView user={user} />;
+  }
+
+  // If logged in as parent, render dedicated parent attendance view
+  if (user?.role === "parent") {
+    return <ParentAttendanceView user={user} />;
   }
 
   const [activeTab, setActiveTab] = useState("marking");
@@ -332,6 +590,20 @@ export default function AttendancePage() {
   const [sections, setSections] = useState([]);
   const [selectedSection, setSelectedSection] = useState(null);
   const [selectedDate, setSelectedDate] = useState(dayjs());
+
+  const currentSectionObj = sections.find((s) => s._id === selectedSection);
+  const teacherId = user?.teacher?._id || user?.teacher;
+  const classTeacherId =
+    currentSectionObj?.classTeacher?._id || currentSectionObj?.classTeacher;
+
+  // Strict: only the assigned class teacher of this section can mark/submit attendance
+  const isClassTeacher =
+    user?.role === "teacher" &&
+    Boolean(
+      teacherId &&
+      classTeacherId &&
+      String(teacherId) === String(classTeacherId)
+    );
 
   // Marking Sheet State
   const [roster, setRoster] = useState([]);
@@ -472,6 +744,13 @@ export default function AttendancePage() {
 
   // Submit attendance roll call
   const handleSubmitAttendance = async () => {
+    if (!isClassTeacher) {
+      message.error(
+        "Access Denied: Only the designated Class Teacher of this class and section is authorized to submit attendance."
+      );
+      return;
+    }
+
     if (roster.length === 0) {
       message.warning("No students in the roster to mark");
       return;
@@ -588,6 +867,7 @@ export default function AttendancePage() {
       width: 320,
       render: (_, r) => (
         <Radio.Group
+          disabled={!isClassTeacher}
           value={attendanceMap[r._id] || "present"}
           onChange={(e) =>
             setAttendanceMap({
@@ -618,7 +898,8 @@ export default function AttendancePage() {
       key: "remarks",
       render: (_, r) => (
         <Input
-          placeholder="Optional remark..."
+          disabled={!isClassTeacher}
+          placeholder={isClassTeacher ? "Optional remark..." : "—"}
           value={remarksMap[r._id] || ""}
           onChange={(e) =>
             setRemarksMap({
@@ -721,14 +1002,28 @@ export default function AttendancePage() {
           <Button icon={<ReloadOutlined />} onClick={loadClassRoster} loading={sheetLoading}>
             Refresh Roster
           </Button>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={handleSubmitAttendance}
-            loading={submitting}
-          >
-            Submit Daily Attendance
-          </Button>
+          {isClassTeacher ? (
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              onClick={handleSubmitAttendance}
+              loading={submitting}
+            >
+              Submit Daily Attendance
+            </Button>
+          ) : (
+            <Tooltip
+              title={
+                currentSectionObj?.classTeacher
+                  ? `Only designated Class Teacher (${currentSectionObj.classTeacher.firstName} ${currentSectionObj.classTeacher.lastName || ""}) can take attendance.`
+                  : "Only the designated Class Teacher can take attendance."
+              }
+            >
+              <Button disabled icon={<SaveOutlined />}>
+                Submit Daily Attendance (Read-Only)
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       </div>
 
@@ -787,7 +1082,7 @@ export default function AttendancePage() {
             >
               {sections.map((s) => (
                 <Option key={s._id} value={s._id}>
-                  {s.name} ({s.code})
+                  {s.name} ({s.code}){s.classTeacher ? ` • CT: ${s.classTeacher.firstName} ${s.classTeacher.lastName || ""}` : ""}
                 </Option>
               ))}
             </Select>
@@ -823,6 +1118,29 @@ export default function AttendancePage() {
               ),
               children: (
                 <div>
+                  {/* Authorization & Access Level Banner */}
+                  {currentSectionObj && (
+                    <Alert
+                      type={isClassTeacher ? "success" : "info"}
+                      showIcon
+                      style={{ marginBottom: 16, borderRadius: 8 }}
+                      message={
+                        isClassTeacher
+                          ? "Designated Class Teacher Access Verified"
+                          : "Read-Only Attendance View"
+                      }
+                      description={
+                        isClassTeacher
+                          ? `You are the assigned Class Teacher for ${currentSectionObj.name}. You have exclusive authority to take and submit daily roll call for this section.`
+                          : `Only the designated Class Teacher (${
+                              currentSectionObj.classTeacher
+                                ? `${currentSectionObj.classTeacher.firstName} ${currentSectionObj.classTeacher.lastName || ""} (${currentSectionObj.classTeacher.employeeId || "Teacher"})`
+                                : "Assigned Class Teacher"
+                            }) can take or edit attendance. Administrators, Principals, and other staff have read-only access.`
+                      }
+                    />
+                  )}
+
                   {/* Summary Bar */}
                   <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
                     <Col xs={12} sm={6} md={4}>
@@ -890,13 +1208,13 @@ export default function AttendancePage() {
                   >
                     <Space wrap>
                       <Text strong>Quick Actions:</Text>
-                      <Button size="small" onClick={() => setAllStatus("present")}>
+                      <Button size="small" disabled={!isClassTeacher} onClick={() => setAllStatus("present")}>
                         Mark All Present
                       </Button>
-                      <Button size="small" onClick={() => setAllStatus("absent")}>
+                      <Button size="small" disabled={!isClassTeacher} onClick={() => setAllStatus("absent")}>
                         Mark All Absent
                       </Button>
-                      <Button size="small" onClick={() => setAllStatus("late")}>
+                      <Button size="small" disabled={!isClassTeacher} onClick={() => setAllStatus("late")}>
                         Mark All Late
                       </Button>
                     </Space>

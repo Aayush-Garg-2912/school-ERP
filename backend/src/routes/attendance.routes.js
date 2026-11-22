@@ -5,20 +5,20 @@ const {
   getAttendance,
   updateAttendance,
   deleteAttendance,
-   getMyChildAttendance,
+  getMyChildAttendance,
 } = require("../controllers/attendance.controller");
 
 const { protect } = require("../middleware/auth.middleware");
-
-const {
-  allowPermissions,
-} = require("../middleware/permissionMiddleware");
+const { allowRoles } = require("../middleware/roleMiddleware");
+const { allowPermissions } = require("../middleware/permissionMiddleware");
 
 const router = express.Router();
 
+// Only teachers can submit attendance; class teacher check is enforced in controller
 router.post(
   "/",
   protect,
+  allowRoles("teacher"),
   allowPermissions("attendance:create"),
   markAttendance
 );
@@ -39,6 +39,7 @@ router.get(
 router.put(
   "/:id",
   protect,
+  allowRoles("teacher"),
   allowPermissions("attendance:update"),
   updateAttendance
 );
@@ -46,6 +47,7 @@ router.put(
 router.delete(
   "/:id",
   protect,
+  allowRoles("teacher"),
   allowPermissions("attendance:delete"),
   deleteAttendance
 );

@@ -45,6 +45,12 @@ const sectionSchema = new mongoose.Schema(
       default: null,
     },
 
+    classTeacher: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Teacher",
+      default: null,
+    },
+
     isActive: {
       type: Boolean,
       default: true,

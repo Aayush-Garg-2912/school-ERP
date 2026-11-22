@@ -1,6 +1,7 @@
 const Section = require("../models/Section");
 const Class = require("../models/Class");
 const AcademicYear = require("../models/AcademicYear");
+const TeacherAssignment = require("../models/TeacherAssignment");
 
 const createSection = async (req, res) => {
   try {
@@ -107,7 +108,31 @@ const getSections = async (req, res) => {
     const sections = await Section.find(filter)
       .populate("academicYear", "name")
       .populate("class", "name code order")
-      .sort({ name: 1 });
+      .populate("classTeacher", "firstName lastName employeeId email phone")
+      .sort({ name: 1 })
+      .lean();
+
+    // Attach classTeacher from TeacherAssignment if not already populated on Section
+    const sectionIds = sections.map((s) => s._id);
+    const assignments = await TeacherAssignment.find({
+      school: req.user.school._id,
+      section: { $in: sectionIds },
+      isClassTeacher: true,
+      isActive: true,
+    }).populate("teacher", "firstName lastName employeeId email phone");
+
+    const ctMap = {};
+    assignments.forEach((a) => {
+      if (a.section && a.teacher) {
+        ctMap[a.section.toString()] = a.teacher;
+      }
+    });
+
+    sections.forEach((s) => {
+      if (!s.classTeacher && ctMap[s._id.toString()]) {
+        s.classTeacher = ctMap[s._id.toString()];
+      }
+    });
 
     res.status(200).json({
       success: true,
@@ -132,13 +157,28 @@ const getSectionById = async (req, res) => {
       school: req.user.school._id,
     })
       .populate("academicYear", "name")
-      .populate("class", "name code order");
+      .populate("class", "name code order")
+      .populate("classTeacher", "firstName lastName employeeId email phone")
+      .lean();
 
     if (!section) {
       return res.status(404).json({
         success: false,
         message: "Section not found",
       });
+    }
+
+    if (!section.classTeacher) {
+      const assignment = await TeacherAssignment.findOne({
+        school: req.user.school._id,
+        section: section._id,
+        isClassTeacher: true,
+        isActive: true,
+      }).populate("teacher", "firstName lastName employeeId email phone");
+
+      if (assignment?.teacher) {
+        section.classTeacher = assignment.teacher;
+      }
     }
 
     res.status(200).json({
