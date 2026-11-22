@@ -1,6 +1,7 @@
 const Section = require("../models/Section");
 const Class = require("../models/Class");
 const AcademicYear = require("../models/AcademicYear");
+const Teacher = require("../models/Teacher");
 const TeacherAssignment = require("../models/TeacherAssignment");
 
 const createSection = async (req, res) => {

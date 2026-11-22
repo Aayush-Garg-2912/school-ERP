@@ -23,6 +23,7 @@ import {
   Progress,
   Avatar,
   Spin,
+  Tooltip,
 } from "antd";
 import {
   CheckSquareOutlined,
@@ -596,6 +597,14 @@ export default function AttendancePage() {
   const classTeacherId =
     currentSectionObj?.classTeacher?._id || currentSectionObj?.classTeacher;
 
+  const getTeacherDisplayName = (ct) => {
+    if (!ct) return "Assigned Class Teacher";
+    if (typeof ct === "object" && ct.firstName) {
+      return `${ct.firstName} ${ct.lastName || ""}`.trim();
+    }
+    return "Assigned Class Teacher";
+  };
+
   // Strict: only the assigned class teacher of this section can mark/submit attendance
   const isClassTeacher =
     user?.role === "teacher" &&
@@ -1015,7 +1024,7 @@ export default function AttendancePage() {
             <Tooltip
               title={
                 currentSectionObj?.classTeacher
-                  ? `Only designated Class Teacher (${currentSectionObj.classTeacher.firstName} ${currentSectionObj.classTeacher.lastName || ""}) can take attendance.`
+                  ? `Only designated Class Teacher (${getTeacherDisplayName(currentSectionObj.classTeacher)}) can take attendance.`
                   : "Only the designated Class Teacher can take attendance."
               }
             >
@@ -1082,7 +1091,7 @@ export default function AttendancePage() {
             >
               {sections.map((s) => (
                 <Option key={s._id} value={s._id}>
-                  {s.name} ({s.code}){s.classTeacher ? ` • CT: ${s.classTeacher.firstName} ${s.classTeacher.lastName || ""}` : ""}
+                  {s.name} ({s.code}){s.classTeacher ? ` • CT: ${getTeacherDisplayName(s.classTeacher)}` : ""}
                 </Option>
               ))}
             </Select>
@@ -1132,11 +1141,7 @@ export default function AttendancePage() {
                       description={
                         isClassTeacher
                           ? `You are the assigned Class Teacher for ${currentSectionObj.name}. You have exclusive authority to take and submit daily roll call for this section.`
-                          : `Only the designated Class Teacher (${
-                              currentSectionObj.classTeacher
-                                ? `${currentSectionObj.classTeacher.firstName} ${currentSectionObj.classTeacher.lastName || ""} (${currentSectionObj.classTeacher.employeeId || "Teacher"})`
-                                : "Assigned Class Teacher"
-                            }) can take or edit attendance. Administrators, Principals, and other staff have read-only access.`
+                          : `Only the designated Class Teacher (${getTeacherDisplayName(currentSectionObj.classTeacher)}) can take or edit attendance. Administrators, Principals, and other staff have read-only access.`
                       }
                     />
                   )}
