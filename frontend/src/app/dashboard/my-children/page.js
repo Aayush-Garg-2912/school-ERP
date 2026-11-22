@@ -31,6 +31,9 @@ import {
   FileDoneOutlined,
   ReloadOutlined,
   ArrowRightOutlined,
+  CarOutlined,
+  PhoneOutlined,
+  EnvironmentOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
 import api from "@/lib/api";
@@ -107,6 +110,11 @@ export default function MyChildrenPage() {
   const openProfileModal = (child) => {
     setSelectedChild(child);
     setActiveModal("profile");
+  };
+
+  const openTransportModal = (child) => {
+    setSelectedChild(child);
+    setActiveModal("transport");
   };
 
   const closeModal = () => {
@@ -208,6 +216,11 @@ export default function MyChildrenPage() {
                         </Title>
                         {item.isPrimary && <Tag color="blue">Primary Ward</Tag>}
                         <Tag color="cyan">{item.relationship || "Guardian"}</Tag>
+                        {stu.transport?.opted && (
+                          <Tag color="volcano" icon={<CarOutlined />} style={{ fontWeight: 700 }}>
+                            {stu.transport.busNumber || "Bus Service"}
+                          </Tag>
+                        )}
                       </div>
                       <Text type="secondary" style={{ fontSize: 13, display: "block", marginTop: 4 }}>
                         Adm No: <strong>{stu.admissionNumber}</strong> {stu.rollNumber ? `• Roll No: ${stu.rollNumber}` : ""}
@@ -250,6 +263,22 @@ export default function MyChildrenPage() {
                     <Col span={12}>
                       <Button block icon={<InfoCircleOutlined />} onClick={() => openProfileModal(item)}>
                         Full Profile
+                      </Button>
+                    </Col>
+                    <Col span={24}>
+                      <Button
+                        block
+                        icon={<CarOutlined style={{ color: "#fa8c16" }} />}
+                        onClick={() => openTransportModal(item)}
+                        style={{
+                          background: stu.transport?.opted ? "#fffaf0" : "#f8fafc",
+                          borderColor: stu.transport?.opted ? "#fed7aa" : "#e2e8f0",
+                          fontWeight: stu.transport?.opted ? 600 : 400,
+                        }}
+                      >
+                        {stu.transport?.opted
+                          ? `Bus Pass: ${stu.transport.busNumber || "Bus"} (${stu.transport.pickupPoint || "Assigned Stop"})`
+                          : "Bus & Transport Facility"}
                       </Button>
                     </Col>
                   </Row>
@@ -500,6 +529,116 @@ export default function MyChildrenPage() {
             ]}
             pagination={false}
           />
+        )}
+      </Modal>
+
+      {/* Child Transport Details Modal */}
+      <Modal
+        title={
+          selectedChild ? (
+            <Space>
+              <CarOutlined style={{ color: "#fa8c16" }} />
+              <span>
+                {selectedChild.student.firstName} {selectedChild.student.lastName}&apos;s Bus & Transit Details
+              </span>
+            </Space>
+          ) : (
+            "Transport Details"
+          )
+        }
+        open={activeModal === "transport"}
+        onCancel={closeModal}
+        footer={[
+          <Button key="close" type="primary" onClick={closeModal}>
+            Done
+          </Button>,
+        ]}
+        width={580}
+      >
+        {selectedChild && (
+          <div>
+            {selectedChild.student.transport?.opted ? (
+              <div>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 10,
+                    background: "#fffaf0",
+                    border: "1px solid #fed7aa",
+                    marginBottom: 16,
+                  }}
+                >
+                  <Space size={8} align="center" style={{ marginBottom: 8 }}>
+                    <Tag color="volcano" icon={<CarOutlined />} style={{ fontWeight: 800, fontSize: 14 }}>
+                      {selectedChild.student.transport.busNumber || "School Bus"}
+                    </Tag>
+                    <Tag color="green">Active Transit Route</Tag>
+                  </Space>
+                  <Title level={5} style={{ margin: "4px 0" }}>
+                    {selectedChild.student.transport.routeName || "School Commute Route"}
+                  </Title>
+                  {selectedChild.student.transport?.vehicle?.vehicleModel && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Vehicle: {selectedChild.student.transport.vehicle.vehicleModel}
+                    </Text>
+                  )}
+                </Card>
+
+                <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
+                  <Descriptions.Item label="Boarding Stop">
+                    <Text strong style={{ color: "#1e3a8a" }}>
+                      <EnvironmentOutlined style={{ color: "#ef4444", marginRight: 4 }} />
+                      {selectedChild.student.transport.pickupPoint || "Assigned Stop"}
+                    </Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Morning Pickup">
+                    <Tag color="cyan" icon={<ClockCircleOutlined />}>
+                      <b>{selectedChild.student.transport.pickupTime || "07:30 AM"}</b>
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Afternoon Drop">
+                    <Tag color="purple" icon={<ClockCircleOutlined />}>
+                      <b>{selectedChild.student.transport.dropTime || "02:30 PM"}</b>
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Designated Driver">
+                    <div>
+                      <Text strong>{selectedChild.student.transport.driverName || "Driver"}</Text>
+                      {selectedChild.student.transport.driverPhone && (
+                        <div style={{ marginTop: 2 }}>
+                          <a href={`tel:${selectedChild.student.transport.driverPhone}`} style={{ color: "#0284c7" }}>
+                            <PhoneOutlined /> {selectedChild.student.transport.driverPhone}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </Descriptions.Item>
+                  {selectedChild.student.transport?.annualFee > 0 && (
+                    <Descriptions.Item label="Annual Transport Fee">
+                      <span style={{ fontWeight: 700, color: "#0f766e" }}>
+                        ₹{selectedChild.student.transport.annualFee.toLocaleString()}
+                      </span>
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </div>
+            ) : (
+              <Card style={{ textAlign: "center", borderRadius: 8, padding: "20px 0", background: "#f8fafc" }}>
+                <Empty
+                  description={
+                    <div>
+                      <div style={{ fontWeight: 600, color: "#475569" }}>
+                        No School Bus Service Opted
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        This ward is currently traveling via private / self commute. If you need school bus transport, please contact the school administration office.
+                      </Text>
+                    </div>
+                  }
+                />
+              </Card>
+            )}
+          </div>
         )}
       </Modal>
     </div>

@@ -58,6 +58,9 @@ import {
   ArrowRightOutlined,
   CheckOutlined,
   ExclamationCircleOutlined,
+  SwapOutlined,
+  ClockCircleOutlined,
+  EnvironmentOutlined,
 } from "@ant-design/icons";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -133,6 +136,22 @@ export default function StudentsPage() {
   const [admOfferType, setAdmOfferType] = useState("none");
   const [admOfferPct, setAdmOfferPct] = useState(0);
   const [admOfferFlat, setAdmOfferFlat] = useState(0);
+
+  // Transport allocation states
+  const [transportVehicles, setTransportVehicles] = useState([]);
+  const [admTransportVehicleId, setAdmTransportVehicleId] = useState(null);
+  const [admTransportBusNumber, setAdmTransportBusNumber] = useState("");
+  const [admTransportPickupPoint, setAdmTransportPickupPoint] = useState("");
+  const [admTransportPickupTime, setAdmTransportPickupTime] = useState("");
+  const [admTransportDropTime, setAdmTransportDropTime] = useState("");
+  const [admTransportDriverName, setAdmTransportDriverName] = useState("");
+  const [admTransportDriverPhone, setAdmTransportDriverPhone] = useState("");
+
+  // Quick transport assignment modal (from student table & student profile drawer)
+  const [quickTransportModalOpen, setQuickTransportModalOpen] = useState(false);
+  const [quickTransportStudent, setQuickTransportStudent] = useState(null);
+  const [quickTransportForm] = Form.useForm();
+  const [quickTransportSubmitting, setQuickTransportSubmitting] = useState(false);
 
   // Student Promotion Wizard
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
@@ -391,6 +410,100 @@ export default function StudentsPage() {
     }
   };
 
+  // Load vehicles for transport selection
+  const loadTransportVehicles = async () => {
+    try {
+      const { data } = await api.get("/transport/vehicles");
+      if (data.success) {
+        setTransportVehicles(data.data.vehicles || []);
+      }
+    } catch (err) {
+      console.warn("Could not load transport vehicles", err);
+    }
+  };
+
+  const handleSelectAdmissionVehicle = (vehicleId) => {
+    setAdmTransportVehicleId(vehicleId);
+    const veh = transportVehicles.find((v) => v._id === vehicleId);
+    if (veh) {
+      setAdmTransportBusNumber(veh.busNumber);
+      setAdmTransportRoute(veh.routeName);
+      setAdmTransportAmount(veh.annualFee || 12000);
+      setAdmTransportPickupPoint(veh.stops?.[0]?.stopName || veh.routeName);
+      setAdmTransportPickupTime(veh.pickupTime || "07:30 AM");
+      setAdmTransportDropTime(veh.dropTime || "02:30 PM");
+      setAdmTransportDriverName(veh.driverName || "");
+      setAdmTransportDriverPhone(veh.driverPhone || "");
+    }
+  };
+
+  // Open quick assign transport modal from table or drawer
+  const handleOpenQuickTransport = (student) => {
+    setQuickTransportStudent(student);
+    quickTransportForm.resetFields();
+    loadTransportVehicles();
+
+    const currVehId =
+      student.transport?.vehicle?._id ||
+      student.transport?.vehicle ||
+      undefined;
+
+    quickTransportForm.setFieldsValue({
+      vehicleId: currVehId,
+      pickupPoint: student.transport?.pickupPoint || "",
+      pickupTime: student.transport?.pickupTime || "",
+      dropTime: student.transport?.dropTime || "",
+      annualFee: student.transport?.annualFee || 12000,
+      updateFeeRecord: true,
+    });
+
+    setQuickTransportModalOpen(true);
+  };
+
+  const handleQuickTransportVehicleSelect = (vehicleId) => {
+    const veh = transportVehicles.find((v) => v._id === vehicleId);
+    if (veh) {
+      quickTransportForm.setFieldsValue({
+        pickupPoint: veh.stops?.[0]?.stopName || veh.routeName,
+        pickupTime: veh.pickupTime || "07:30 AM",
+        dropTime: veh.dropTime || "02:30 PM",
+        annualFee: veh.annualFee || 12000,
+      });
+    }
+  };
+
+  const handleQuickTransportSubmit = async (values) => {
+    if (!quickTransportStudent) return;
+    setQuickTransportSubmitting(true);
+    try {
+      const payload = {
+        studentId: quickTransportStudent._id,
+        vehicleId: values.vehicleId,
+        pickupPoint: values.pickupPoint,
+        pickupTime: values.pickupTime,
+        dropTime: values.dropTime,
+        annualFee: Number(values.annualFee || 0),
+        updateFeeRecord: Boolean(values.updateFeeRecord),
+      };
+
+      const { data } = await api.post("/transport/assign", payload);
+      if (data.success) {
+        message.success(data.message || "Transport assigned successfully!");
+        setQuickTransportModalOpen(false);
+        fetchStudentsList(viewClass, viewSection);
+
+        // If currently viewing in drawer, refresh drawer student info
+        if (selectedStudent && selectedStudent._id === quickTransportStudent._id) {
+          handleViewStudent(data.data.student);
+        }
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "Failed to update transport allocation");
+    } finally {
+      setQuickTransportSubmitting(false);
+    }
+  };
+
   // Handle student admission creation
   const handleCreateStudent = async (values) => {
     setSubmitting(true);
@@ -435,6 +548,21 @@ export default function StudentsPage() {
           offerObj = { name: "Flat Scholarship / Discount", type: "flat", value: Number(admOfferFlat || 0) };
         }
 
+        if (admTransportOpted) {
+          payload.transport = {
+            opted: true,
+            vehicle: admTransportVehicleId || null,
+            busNumber: admTransportBusNumber || "",
+            routeName: admTransportRoute || "",
+            pickupPoint: admTransportPickupPoint || admTransportRoute || "",
+            pickupTime: admTransportPickupTime || "07:30 AM",
+            dropTime: admTransportDropTime || "02:30 PM",
+            driverName: admTransportDriverName || "",
+            driverPhone: admTransportDriverPhone || "",
+            annualFee: Number(admTransportAmount || 0),
+          };
+        }
+
         payload.fee = {
           feeStructureId: values.feeStructureId || undefined,
           annualCharges: Number(admAnnualCharges || 0),
@@ -443,7 +571,14 @@ export default function StudentsPage() {
           transportFee: admTransportOpted ? Number(admTransportAmount || 0) : 0,
           transportDetails: {
             opted: Boolean(admTransportOpted),
+            vehicle: admTransportVehicleId || null,
+            busNumber: admTransportBusNumber || "",
             route: admTransportRoute || "",
+            pickupPoint: admTransportPickupPoint || admTransportRoute || "",
+            pickupTime: admTransportPickupTime || "07:30 AM",
+            dropTime: admTransportDropTime || "02:30 PM",
+            driverName: admTransportDriverName || "",
+            driverPhone: admTransportDriverPhone || "",
           },
           extraFees: Number(admExtraAmount || 0),
           offer: offerObj,
@@ -551,6 +686,14 @@ export default function StudentsPage() {
     setAdmTransportOpted(false);
     setAdmTransportAmount(0);
     setAdmTransportRoute("");
+    setAdmTransportVehicleId(null);
+    setAdmTransportBusNumber("");
+    setAdmTransportPickupPoint("");
+    setAdmTransportPickupTime("");
+    setAdmTransportDropTime("");
+    setAdmTransportDriverName("");
+    setAdmTransportDriverPhone("");
+    loadTransportVehicles();
     setAdmExtraAmount(0);
     setAdmExtraRemarks("");
     setAdmOfferType("none");
@@ -582,8 +725,13 @@ export default function StudentsPage() {
     try {
       setLoadingStudentFee(true);
       const { data } = await api.get(`/students/${student._id}`);
-      if (data.success && data.data.studentFee) {
-        setSelectedStudentFee(data.data.studentFee);
+      if (data.success) {
+        if (data.data.student) {
+          setSelectedStudent(data.data.student);
+        }
+        if (data.data.studentFee) {
+          setSelectedStudentFee(data.data.studentFee);
+        }
       }
     } catch (e) {
       console.warn("Could not load student fee record:", e);
@@ -894,6 +1042,41 @@ export default function StudentsPage() {
       },
     },
     {
+      title: "Bus / Transport",
+      key: "transport",
+      width: 140,
+      render: (_, r) => {
+        const isOpted = Boolean(r.transport?.opted);
+        const busNo = r.transport?.busNumber;
+        if (isOpted && busNo) {
+          return (
+            <Tooltip
+              title={`${r.transport?.routeName || "School Bus"} • Stop: ${r.transport?.pickupPoint || "Assigned Stop"}`}
+            >
+              <Tag
+                color="volcano"
+                icon={<CarOutlined />}
+                style={{ fontWeight: 700, cursor: "pointer" }}
+                onClick={() => handleOpenQuickTransport(r)}
+              >
+                {busNo}
+              </Tag>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title="Click to assign bus">
+            <Tag
+              style={{ cursor: "pointer", color: "#64748b" }}
+              onClick={() => handleOpenQuickTransport(r)}
+            >
+              + Assign Bus
+            </Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: "Status",
       dataIndex: "status",
       key: "status",
@@ -921,6 +1104,14 @@ export default function StudentsPage() {
           </Tooltip>
           {canManage && (
             <>
+              <Tooltip title="Assign / Change School Bus">
+                <Button
+                  type="text"
+                  icon={<CarOutlined style={{ color: "#fa8c16" }} />}
+                  size="small"
+                  onClick={() => handleOpenQuickTransport(r)}
+                />
+              </Tooltip>
               <Tooltip title="Edit Student">
                 <Button
                   type="text"
@@ -1532,6 +1723,96 @@ export default function StudentsPage() {
                   : "Never logged in"}
               </Descriptions.Item>
             </Descriptions>
+
+            {/* School Bus & Transport Service */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 8 }}>
+              <Title level={5} style={{ margin: 0 }}>
+                <CarOutlined style={{ marginRight: 6, color: "#fa8c16" }} />
+                School Bus & Transport Service
+              </Title>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SwapOutlined />}
+                style={{ backgroundColor: "#1677ff" }}
+                onClick={() => handleOpenQuickTransport(selectedStudent)}
+              >
+                {selectedStudent.transport?.opted ? "Change Bus / Stop" : "Assign School Bus"}
+              </Button>
+            </div>
+
+            {selectedStudent.transport?.opted ? (
+              <Card
+                size="small"
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #fed7aa",
+                  background: "#fffaf0",
+                  marginBottom: 20,
+                }}
+              >
+                <Descriptions bordered size="small" column={1}>
+                  <Descriptions.Item label="Bus Number">
+                    <Tag color="volcano" icon={<CarOutlined />} style={{ fontWeight: 800 }}>
+                      {selectedStudent.transport.busNumber || "BUS"}
+                    </Tag>
+                    {selectedStudent.transport?.vehicle?.vehicleModel && (
+                      <span style={{ fontSize: 12, color: "#64748b", marginLeft: 6 }}>
+                        ({selectedStudent.transport.vehicle.vehicleModel})
+                      </span>
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Route & Boarding Stop">
+                    <div style={{ fontWeight: 600, color: "#1e293b" }}>
+                      <EnvironmentOutlined style={{ color: "#ef4444", marginRight: 4 }} />
+                      {selectedStudent.transport.pickupPoint || "Assigned Stop"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>
+                      {selectedStudent.transport.routeName || "School Route"}
+                    </div>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Transit Timings">
+                    <Space size={10}>
+                      <Tag color="cyan">Pickup: <b>{selectedStudent.transport.pickupTime || "07:30 AM"}</b></Tag>
+                      <Tag color="purple">Drop: <b>{selectedStudent.transport.dropTime || "02:30 PM"}</b></Tag>
+                    </Space>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Driver & Contact">
+                    <div>
+                      <Text strong>{selectedStudent.transport.driverName || "Driver"}</Text>
+                      {selectedStudent.transport.driverPhone && (
+                        <div style={{ marginTop: 2 }}>
+                          <a href={`tel:${selectedStudent.transport.driverPhone}`} style={{ color: "#0284c7" }}>
+                            <PhoneOutlined /> {selectedStudent.transport.driverPhone}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </Descriptions.Item>
+                  {selectedStudent.transport.annualFee > 0 && (
+                    <Descriptions.Item label="Annual Transport Fee">
+                      <span style={{ fontWeight: 700, color: "#0f766e" }}>
+                        ₹{selectedStudent.transport.annualFee.toLocaleString()}
+                      </span>
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </Card>
+            ) : (
+              <Card
+                size="small"
+                style={{
+                  borderRadius: 8,
+                  background: "#f8fafc",
+                  marginBottom: 20,
+                  border: "1px dashed #cbd5e1",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Student is currently not enrolled in school bus service. Click &quot;Assign School Bus&quot; above to allocate a route.
+                </Text>
+              </Card>
+            )}
             {/* Fee & Accounts Status */}
             <Title level={5} style={{ marginTop: 20 }}>
               <DollarCircleOutlined style={{ marginRight: 6, color: "#fa8c16" }} />
@@ -1923,25 +2204,64 @@ export default function StudentsPage() {
                   </Checkbox>
 
                   {admTransportOpted && (
-                    <Row gutter={16} style={{ marginTop: 12 }}>
-                      <Col xs={24} sm={14}>
-                        <Input
-                          placeholder="Route / Pickup Stop (e.g. Route 3 - Sector 12)"
-                          value={admTransportRoute}
-                          onChange={(e) => setAdmTransportRoute(e.target.value)}
-                        />
-                      </Col>
-                      <Col xs={24} sm={10}>
-                        <InputNumber
-                          min={0}
-                          style={{ width: "100%" }}
-                          prefix="₹"
-                          placeholder="Annual Transport Fee"
-                          value={admTransportAmount}
-                          onChange={(v) => setAdmTransportAmount(v || 0)}
-                        />
-                      </Col>
-                    </Row>
+                    <div style={{ marginTop: 12 }}>
+                      {transportVehicles.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                          <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                            Select School Bus Route (Auto-fills route, stops & timings)
+                          </Text>
+                          <Select
+                            placeholder="Choose from active school buses"
+                            allowClear
+                            style={{ width: "100%" }}
+                            value={admTransportVehicleId}
+                            onChange={handleSelectAdmissionVehicle}
+                          >
+                            {transportVehicles.map((v) => (
+                              <Option key={v._id} value={v._id}>
+                                <Tag color="volcano">{v.busNumber}</Tag> {v.routeName} (₹{v.annualFee?.toLocaleString()})
+                              </Option>
+                            ))}
+                          </Select>
+                        </div>
+                      )}
+
+                      <Row gutter={16}>
+                        <Col xs={24} sm={14}>
+                          <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                            Pickup / Boarding Stop
+                          </Text>
+                          <Input
+                            placeholder="e.g. Sector 14 Main Market"
+                            value={admTransportPickupPoint || admTransportRoute}
+                            onChange={(e) => {
+                              setAdmTransportPickupPoint(e.target.value);
+                              setAdmTransportRoute(e.target.value);
+                            }}
+                            prefix={<EnvironmentOutlined style={{ color: "#ef4444" }} />}
+                          />
+                        </Col>
+                        <Col xs={24} sm={10}>
+                          <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                            Annual Transport Fee (₹)
+                          </Text>
+                          <InputNumber
+                            min={0}
+                            style={{ width: "100%" }}
+                            prefix="₹"
+                            placeholder="Annual Transport Fee"
+                            value={admTransportAmount}
+                            onChange={(v) => setAdmTransportAmount(v || 0)}
+                          />
+                        </Col>
+                      </Row>
+
+                      {admTransportDriverName && (
+                        <div style={{ padding: "8px 12px", background: "#f8fafc", borderRadius: 6, fontSize: 12, color: "#475569", marginTop: 8 }}>
+                          Bus: <b>{admTransportBusNumber}</b> • Driver: <b>{admTransportDriverName}</b> ({admTransportDriverPhone}) • Timing: {admTransportPickupTime} - {admTransportDropTime}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -2529,6 +2849,96 @@ export default function StudentsPage() {
               <Button onClick={() => setEditModalOpen(false)}>Cancel</Button>
               <Button type="primary" htmlType="submit" loading={editSubmitting}>
                 Save Changes
+              </Button>
+            </Space>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* Quick Transport Assignment Modal */}
+      <Modal
+        title={
+          <Space>
+            <CarOutlined style={{ color: "#fa8c16" }} />
+            <span>
+              Assign School Bus: <b>{quickTransportStudent?.firstName} {quickTransportStudent?.lastName || ""}</b> (Adm: {quickTransportStudent?.admissionNumber})
+            </span>
+          </Space>
+        }
+        open={quickTransportModalOpen}
+        onCancel={() => setQuickTransportModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={580}
+      >
+        <Form
+          form={quickTransportForm}
+          layout="vertical"
+          onFinish={handleQuickTransportSubmit}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            name="vehicleId"
+            label="Select School Bus / Route"
+            rules={[{ required: true, message: "Please select a bus route" }]}
+          >
+            <Select
+              placeholder="Choose Bus & Route"
+              onChange={handleQuickTransportVehicleSelect}
+            >
+              {transportVehicles.map((v) => (
+                <Option key={v._id} value={v._id}>
+                  <Tag color="volcano">{v.busNumber}</Tag> <b>{v.routeName}</b> (₹{v.annualFee?.toLocaleString()})
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={14}>
+              <Form.Item
+                name="pickupPoint"
+                label="Pickup / Boarding Stop"
+                rules={[{ required: true, message: "Enter pickup stop" }]}
+              >
+                <Input placeholder="e.g. Sector 14 Community Center" prefix={<EnvironmentOutlined style={{ color: "#ef4444" }} />} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={10}>
+              <Form.Item
+                name="annualFee"
+                label="Annual Transport Fee (₹)"
+                rules={[{ required: true, message: "Enter fee amount" }]}
+              >
+                <InputNumber min={0} prefix="₹" style={{ width: "100%" }} placeholder="12000" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="pickupTime" label="Morning Pickup Time">
+                <Input placeholder="07:30 AM" prefix={<ClockCircleOutlined style={{ color: "#1677ff" }} />} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="dropTime" label="Afternoon Drop Time">
+                <Input placeholder="02:30 PM" prefix={<ClockCircleOutlined style={{ color: "#722ed1" }} />} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="updateFeeRecord" valuePropName="checked" style={{ marginBottom: 16 }}>
+            <Checkbox defaultChecked>
+              Automatically synchronize student fee record with this transport fee
+            </Checkbox>
+          </Form.Item>
+
+          <div style={{ textAlign: "right", marginTop: 16 }}>
+            <Space>
+              <Button onClick={() => setQuickTransportModalOpen(false)}>Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={quickTransportSubmitting}>
+                Save Bus Allocation
               </Button>
             </Space>
           </div>

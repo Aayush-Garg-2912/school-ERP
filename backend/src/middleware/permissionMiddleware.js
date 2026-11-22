@@ -7,8 +7,20 @@ const allowPermissions = (...requiredPermissions) => {
       });
     }
 
-    const userPermissions = req.user.role.permissions.map(
-      (permission) => permission.name
+    const roleName = req.user.role.name || req.user.role;
+
+    // Super-administrative roles bypass specific permission checks
+    if (["chairman", "principal", "admin"].includes(roleName)) {
+      return next();
+    }
+
+    // Accountant has access to transport and fee operations
+    if (roleName === "accountant" && requiredPermissions.every((p) => p.startsWith("transport:") || p.startsWith("fee:"))) {
+      return next();
+    }
+
+    const userPermissions = (req.user.role.permissions || []).map(
+      (permission) => (typeof permission === "string" ? permission : permission.name)
     );
 
     const hasPermission = requiredPermissions.every((permission) =>

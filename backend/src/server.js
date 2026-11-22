@@ -32,6 +32,7 @@ const routes = {
   notifications: require("./routes/notification.routes"),
   reports: require("./routes/report.routes"),
   whatsapp: require("./routes/whatsapp.routes"),
+  transport: require("./routes/transport.routes"),
 };
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -107,6 +108,7 @@ const registerRoutes = (prefix = "") => {
   app.use(`${prefix}/notifications`, routes.notifications);
   app.use(`${prefix}/reports`, routes.reports);
   app.use(`${prefix}/whatsapp`, routes.whatsapp);
+  app.use(`${prefix}/transport`, routes.transport);
 };
 
 // Mount both with /api and without /api to prevent 404s from environment configuration mismatch

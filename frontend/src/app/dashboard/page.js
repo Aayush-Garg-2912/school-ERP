@@ -27,6 +27,7 @@ import {
   TrophyOutlined,
   BookOutlined,
   ScheduleOutlined,
+  CarOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -248,6 +249,41 @@ export default function DashboardPage() {
         </Row>
       )}
 
+      {/* Student Transport Service Banner */}
+      {role === "student" && studentStats?.profile?.transport?.opted && (
+        <Card
+          size="small"
+          style={{
+            marginBottom: 24,
+            borderRadius: 12,
+            background: "#fffaf0",
+            border: "1px solid #fed7aa",
+          }}
+        >
+          <Row align="middle" justify="space-between" gutter={[12, 12]}>
+            <Col xs={24} sm={16}>
+              <Space size={8} wrap align="center">
+                <Tag color="volcano" icon={<CarOutlined />} style={{ fontWeight: 800, fontSize: 13 }}>
+                  {studentStats.profile.transport.busNumber || "School Bus"}
+                </Tag>
+                <Text strong style={{ fontSize: 14 }}>{studentStats.profile.transport.routeName}</Text>
+                <Tag color="blue">Stop: {studentStats.profile.transport.pickupPoint}</Tag>
+              </Space>
+              <div style={{ marginTop: 4, fontSize: 12, color: "#64748b" }}>
+                Pickup: <b>{studentStats.profile.transport.pickupTime || "07:30 AM"}</b> • Drop: <b>{studentStats.profile.transport.dropTime || "02:30 PM"}</b> • Driver: <b>{studentStats.profile.transport.driverName}</b> ({studentStats.profile.transport.driverPhone})
+              </div>
+            </Col>
+            <Col xs={24} sm={8} style={{ textAlign: "right" }}>
+              <Link href="/dashboard/transport">
+                <Button size="small" type="primary" style={{ backgroundColor: "#fa8c16" }} icon={<CarOutlined />}>
+                  View Bus Pass
+                </Button>
+              </Link>
+            </Col>
+          </Row>
+        </Card>
+      )}
+
       {/* KPI Cards for Administrative, Accountant & Teacher roles */}
       {["chairman", "principal", "admin", "accountant", "teacher"].includes(role) && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -398,6 +434,23 @@ export default function DashboardPage() {
                             </Text>
                           </div>
                           <ArrowRightOutlined style={{ color: "#1677ff" }} />
+                        </Space>
+                      </Link>
+                    </Card>
+                  </Col>
+
+                  <Col xs={24} sm={12}>
+                    <Card size="small" hoverable style={{ background: "#f8fafc", borderRadius: 8 }}>
+                      <Link href="/dashboard/transport">
+                        <Space style={{ display: "flex", justifyContent: "space-between" }}>
+                          <div>
+                            <Text strong>My School Bus & Transit</Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Bus timing, pickup stop & driver contact
+                            </Text>
+                          </div>
+                          <CarOutlined style={{ color: "#fa8c16" }} />
                         </Space>
                       </Link>
                     </Card>

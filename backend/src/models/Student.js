@@ -180,6 +180,67 @@ const studentSchema = new mongoose.Schema(
       ],
       default: "active",
     },
+
+    // Transport / School Bus Service Details
+    transport: {
+      opted: {
+        type: Boolean,
+        default: false,
+      },
+      vehicle: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "TransportVehicle",
+        default: null,
+      },
+      busNumber: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      routeName: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      pickupPoint: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      pickupTime: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      dropTime: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      driverName: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      driverPhone: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      annualFee: {
+        type: Number,
+        default: 0,
+      },
+      status: {
+        type: String,
+        enum: ["active", "inactive"],
+        default: "active",
+      },
+      assignedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
   },
   {
     timestamps: true,
@@ -201,6 +262,16 @@ studentSchema.index({
   academicYear: 1,
   class: 1,
   section: 1,
+});
+
+studentSchema.index({
+  school: 1,
+  "transport.opted": 1,
+});
+
+studentSchema.index({
+  school: 1,
+  "transport.vehicle": 1,
 });
 
 module.exports = mongoose.model(

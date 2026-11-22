@@ -33,6 +33,7 @@ import {
   SolutionOutlined,
   WhatsAppOutlined,
   MessageOutlined,
+  CarOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
@@ -153,6 +154,11 @@ export default function DashboardLayout({ children }) {
           label: <Link href="/dashboard/fees">Fee Management</Link>,
         },
         {
+          key: "/dashboard/transport",
+          icon: <CarOutlined />,
+          label: <Link href="/dashboard/transport">Transport Services</Link>,
+        },
+        {
           key: "/dashboard/leaves",
           icon: <ScheduleOutlined />,
           label: <Link href="/dashboard/leaves">Leave Requests</Link>,
@@ -184,6 +190,11 @@ export default function DashboardLayout({ children }) {
           key: "/dashboard/fees/payments",
           icon: <FileTextOutlined />,
           label: <Link href="/dashboard/fees/payments">Payment Receipts</Link>,
+        },
+        {
+          key: "/dashboard/transport",
+          icon: <CarOutlined />,
+          label: <Link href="/dashboard/transport">Transport Allocations</Link>,
         },
         {
           key: "/dashboard/students",
@@ -252,6 +263,11 @@ export default function DashboardLayout({ children }) {
           label: <Link href="/dashboard/my-children">My Children</Link>,
         },
         {
+          key: "/dashboard/transport",
+          icon: <CarOutlined />,
+          label: <Link href="/dashboard/transport">Bus & Transport</Link>,
+        },
+        {
           key: "/dashboard/attendance",
           icon: <CheckSquareOutlined />,
           label: <Link href="/dashboard/attendance">Attendance Monitor</Link>,
@@ -274,6 +290,11 @@ export default function DashboardLayout({ children }) {
       );
     } else if (role === "student") {
       items.push(
+        {
+          key: "/dashboard/transport",
+          icon: <CarOutlined />,
+          label: <Link href="/dashboard/transport">My School Bus</Link>,
+        },
         {
           key: "/dashboard/attendance",
           icon: <CheckSquareOutlined />,

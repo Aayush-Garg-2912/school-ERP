@@ -437,10 +437,15 @@ const getMyChildren = async (req, res) => {
     const parentStudents = await ParentStudent.find({
       school: req.user.school._id,
       parent: parent._id,
-    }).populate(
-      "student",
-      "admissionNumber firstName lastName rollNumber class section"
-    );
+    }).populate({
+      path: "student",
+      select: "admissionNumber firstName lastName rollNumber class section transport phone bloodGroup",
+      populate: [
+        { path: "class", select: "name code" },
+        { path: "section", select: "name code" },
+        { path: "transport.vehicle" },
+      ],
+    });
 
     const students = parentStudents.map(
       (item) => ({
@@ -495,10 +500,15 @@ const getMyChildById = async (req, res) => {
       school: req.user.school._id,
       parent: parent._id,
       student: req.params.studentId,
-    }).populate(
-      "student",
-      "admissionNumber firstName lastName rollNumber class section"
-    );
+    }).populate({
+      path: "student",
+      select: "admissionNumber firstName lastName rollNumber class section transport phone bloodGroup address",
+      populate: [
+        { path: "class", select: "name code" },
+        { path: "section", select: "name code" },
+        { path: "transport.vehicle" },
+      ],
+    });
 
     if (!parentStudent || !parentStudent.student) {
       return res.status(404).json({

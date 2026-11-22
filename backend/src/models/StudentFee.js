@@ -83,8 +83,18 @@ const studentFeeSchema = new mongoose.Schema(
 
     transportDetails: {
       opted: { type: Boolean, default: false },
+      vehicle: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "TransportVehicle",
+        default: null,
+      },
+      busNumber: { type: String, default: "", trim: true },
       route: { type: String, default: "", trim: true },
       pickupPoint: { type: String, default: "", trim: true },
+      pickupTime: { type: String, default: "", trim: true },
+      dropTime: { type: String, default: "", trim: true },
+      driverName: { type: String, default: "", trim: true },
+      driverPhone: { type: String, default: "", trim: true },
     },
 
     extraFees: {

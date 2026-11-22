@@ -9,6 +9,7 @@ const User = require("../models/User");
 const Role = require("../models/Role");
 const StudentFee = require("../models/StudentFee");
 const FeeStructure = require("../models/FeeStructure");
+const TransportVehicle = require("../models/TransportVehicle");
 const { calculateStudentFeeDetails } = require("../services/feeCalculation.service");
 
 const tempPassword = () => crypto.randomBytes(5).toString("base64url");
@@ -334,6 +335,35 @@ const createStudent = async (req, res) => {
         student: student._id,
       });
       student.user = user._id;
+
+      // Attach transport allocation if opted during admission
+      const transportPayload = req.body.transport || req.body.fee?.transportDetails;
+      const vehicleId = transportPayload?.vehicle || req.body.fee?.vehicleId || req.body.vehicleId;
+      const transportOpted = Boolean(transportPayload?.opted || (Number(req.body.fee?.transportFee) > 0) || vehicleId);
+
+      if (transportOpted) {
+        let vehicleObj = null;
+        if (vehicleId) {
+          vehicleObj = await TransportVehicle.findOne({ _id: vehicleId, school: schoolId });
+        }
+
+        const tFee = Number(req.body.fee?.transportFee || vehicleObj?.annualFee || transportPayload?.annualFee || 0);
+        student.transport = {
+          opted: true,
+          vehicle: vehicleObj?._id || null,
+          busNumber: vehicleObj?.busNumber || transportPayload?.busNumber || "",
+          routeName: vehicleObj?.routeName || transportPayload?.route || transportPayload?.routeName || "",
+          pickupPoint: transportPayload?.pickupPoint || vehicleObj?.stops?.[0]?.stopName || "",
+          pickupTime: transportPayload?.pickupTime || vehicleObj?.pickupTime || "07:30 AM",
+          dropTime: transportPayload?.dropTime || vehicleObj?.dropTime || "02:30 PM",
+          driverName: vehicleObj?.driverName || transportPayload?.driverName || "",
+          driverPhone: vehicleObj?.driverPhone || transportPayload?.driverPhone || "",
+          annualFee: tFee,
+          status: "active",
+          assignedAt: new Date(),
+        };
+      }
+
       await student.save();
 
       let studentFee = null;
@@ -426,6 +456,7 @@ const getStudents = async (req, res) => {
         .populate("class", "name code")
         .populate("section", "name code")
         .populate("user", "email isActive lastLogin")
+        .populate("transport.vehicle")
         .sort({ rollNumber: 1 }),
       Student.countDocuments({ school: schoolObjectId }),
       Student.aggregate([
@@ -477,7 +508,8 @@ const getStudentById = async (req, res) => {
       .populate("academicYear", "name")
       .populate("class", "name code")
       .populate("section", "name code")
-      .populate("user", "email isActive lastLogin");
+      .populate("user", "email isActive lastLogin")
+      .populate("transport.vehicle");
     if (!student)
       return res
         .status(404)
