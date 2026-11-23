@@ -39,6 +39,7 @@ import {
   MessageOutlined,
   CarOutlined,
   KeyOutlined,
+  CloudUploadOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
@@ -206,6 +207,11 @@ export default function DashboardLayout({ children }) {
           key: "/dashboard/reports",
           icon: <LineChartOutlined />,
           label: <Link href="/dashboard/reports">Analytics & Reports</Link>,
+        },
+        {
+          key: "/dashboard/import",
+          icon: <CloudUploadOutlined />,
+          label: <Link href="/dashboard/import">Data Import Center</Link>,
         }
       );
     } else if (role === "accountant") {

@@ -568,19 +568,7 @@ function ParentAttendanceView({ user }) {
 // ==========================================
 // 2. TEACHER / ADMIN ATTENDANCE MARKING COMPONENT
 // ==========================================
-export default function AttendancePage() {
-  const { user } = useAuth();
-
-  // If logged in as student, render dedicated student attendance view
-  if (user?.role === "student") {
-    return <StudentAttendanceView user={user} />;
-  }
-
-  // If logged in as parent, render dedicated parent attendance view
-  if (user?.role === "parent") {
-    return <ParentAttendanceView user={user} />;
-  }
-
+function AdminTeacherAttendanceView({ user }) {
   const [activeTab, setActiveTab] = useState("marking");
 
   // Selection Filters
@@ -1028,9 +1016,11 @@ export default function AttendancePage() {
                   : "Only the designated Class Teacher can take attendance."
               }
             >
-              <Button disabled icon={<SaveOutlined />}>
-                Submit Daily Attendance (Read-Only)
-              </Button>
+              <span>
+                <Button disabled icon={<SaveOutlined />}>
+                  Submit Daily Attendance (Read-Only)
+                </Button>
+              </span>
             </Tooltip>
           )}
         </Space>
@@ -1292,4 +1282,41 @@ export default function AttendancePage() {
       </Card>
     </div>
   );
+}
+
+// ==========================================
+// 3. MAIN ATTENDANCE PAGE DISPATCHER
+// ==========================================
+export default function AttendancePage() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: 400,
+          background: "#fff",
+          borderRadius: 12,
+        }}
+      >
+        <Spin size="large" tip="Loading attendance workspace..." />
+      </div>
+    );
+  }
+
+  // If student
+  if (user?.role === "student") {
+    return <StudentAttendanceView user={user} />;
+  }
+
+  // If parent
+  if (user?.role === "parent") {
+    return <ParentAttendanceView user={user} />;
+  }
+
+  // Admin, Principal, Chairman, or Teacher
+  return <AdminTeacherAttendanceView user={user} />;
 }
